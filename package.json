@@ -1,0 +1,22 @@
+{
+  "name": "afinador-guitarra",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Afinador de guitarra acústica en el navegador con detección automática de cuerda y afinaciones personalizables.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test test/",
+    "start": "vite build && vite preview"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "lucide": "^1.59.0",
+    "pitchy": "^4.1.0"
+  },
+  "devDependencies": {
+    "vite": "^6.3.5"
+  }
+}

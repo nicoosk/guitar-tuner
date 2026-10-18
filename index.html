@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Afinador de guitarra</title>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <span class="brand" title="Afinador"><span data-icon="Guitar"></span></span>
+        <label class="visually-hidden" for="preset-select">Afinación</label>
+        <select id="preset-select" class="preset-select"></select>
+        <div class="toolbar">
+          <button id="edit-preset" class="icon-btn" type="button" title="Editar afinación" aria-label="Editar afinación">
+            <span data-icon="Pencil"></span>
+          </button>
+          <button id="new-preset" class="icon-btn" type="button" title="Nueva afinación" aria-label="Nueva afinación">
+            <span data-icon="Plus"></span>
+          </button>
+          <button id="restore-defaults" class="icon-btn" type="button" title="Restaurar afinaciones predefinidas" aria-label="Restaurar afinaciones predefinidas">
+            <span data-icon="RotateCcw"></span>
+          </button>
+        </div>
+      </header>
+
+      <div id="app-error" class="banner" role="alert" hidden>
+        <span data-icon="TriangleAlert"></span>
+        <span id="app-error-text"></span>
+      </div>
+
+      <main>
+        <section class="meter idle">
+          <svg class="gauge" viewBox="0 0 300 170" aria-hidden="true">
+            <path class="gauge-arc" d="M 30 150 A 120 120 0 0 1 270 150" />
+            <path class="gauge-zone" id="gauge-zone" />
+            <g id="gauge-ticks"></g>
+            <g id="needle" class="needle">
+              <line x1="150" y1="150" x2="150" y2="42" />
+              <circle cx="150" cy="150" r="7" />
+            </g>
+          </svg>
+
+          <div class="reading">
+            <div id="note-ring" class="note-ring empty">
+              <span data-icon="Mic" class="listening"></span>
+              <span id="target-note" class="target-note"></span>
+              <span id="target-string" class="ring-badge"></span>
+            </div>
+
+            <div class="status-row" aria-hidden="true">
+              <span data-icon="ArrowUp" class="status-icon si-flat"></span>
+              <span id="cents" class="cents">—</span>
+              <span data-icon="ArrowDown" class="status-icon si-sharp"></span>
+              <span data-icon="Check" class="status-icon si-ok"></span>
+            </div>
+            <p id="status" class="visually-hidden" aria-live="polite">Esperando sonido…</p>
+
+            <div class="details">
+              <span class="detail" title="Frecuencia detectada">
+                <span data-icon="AudioWaveform"></span>
+                <strong id="detected-hz">—</strong>
+                <small id="detected-note"></small>
+              </span>
+              <span class="detail" title="Frecuencia objetivo">
+                <span data-icon="Target"></span>
+                <strong id="target-hz">—</strong>
+              </span>
+              <button id="play-ref" class="icon-btn play-btn" type="button" title="Escuchar nota de referencia" aria-label="Escuchar nota de referencia" aria-pressed="false" disabled>
+                <span data-icon="Volume2"></span>
+              </button>
+            </div>
+
+            <div id="signal" class="signal" title="Nivel del micrófono · arrastra para ajustar la sensibilidad">
+              <span data-icon="Mic"></span>
+              <input id="sensitivity" class="sensitivity" type="range" step="0.5" aria-label="Umbral de sensibilidad del micrófono" />
+            </div>
+          </div>
+        </section>
+
+        <section class="strings-section">
+          <button id="mode-chip" class="mode-chip" type="button" disabled>
+            <span data-icon="Sparkles" class="mode-icon-auto"></span>
+            <span data-icon="Lock" class="mode-icon-manual"></span>
+            <span id="mode-label">Auto</span>
+            <span data-icon="X" class="mode-icon-manual"></span>
+          </button>
+          <div id="strings" class="strings"></div>
+        </section>
+      </main>
+    </div>
+
+    <div id="start-overlay" class="overlay">
+      <div class="overlay-card">
+        <button id="start-btn" class="start-btn" type="button" title="Activar micrófono" aria-label="Activar micrófono">
+          <span data-icon="Mic"></span>
+        </button>
+        <p class="overlay-caption">Activar micrófono</p>
+        <p class="overlay-note"><span data-icon="ShieldCheck"></span> El audio no sale de tu navegador</p>
+        <p id="start-error" class="error" hidden></p>
+      </div>
+    </div>
+
+    <dialog id="editor" class="editor">
+      <form id="editor-form" novalidate>
+        <div class="editor-head">
+          <h2 id="editor-title">Editar afinación</h2>
+          <button id="cancel-edit" class="icon-btn" type="button" title="Cancelar" aria-label="Cancelar">
+            <span data-icon="X"></span>
+          </button>
+        </div>
+        <label class="name-field">
+          <span data-icon="Tag"></span>
+          <input id="preset-name" type="text" maxlength="40" required autocomplete="off" placeholder="Nombre" aria-label="Nombre de la afinación" />
+        </label>
+        <div id="editor-strings" class="editor-strings"></div>
+        <p id="editor-error" class="error" hidden></p>
+        <div class="editor-actions">
+          <button id="delete-preset" class="icon-btn danger" type="button" title="Eliminar afinación" aria-label="Eliminar afinación">
+            <span data-icon="Trash2"></span>
+          </button>
+          <span class="spacer"></span>
+          <button class="btn btn-primary" type="submit"><span data-icon="Check"></span> Guardar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
