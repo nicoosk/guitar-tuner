@@ -1,24 +1,30 @@
 import { defineConfig } from 'vite';
-import { resolve } from 'node:path';
-import { openDatabase } from './server/db.js';
-import { createApiMiddleware } from './server/api.js';
+import { VitePWA } from 'vite-plugin-pwa';
 
-// Monta la API de afinaciones (SQLite) dentro del servidor de Vite, tanto en
-// `npm run dev` como en `npm run preview`. La base se abre solo al levantar el servidor.
-function presetsApi() {
-  let middleware;
-  const getMiddleware = () => {
-    middleware ??= createApiMiddleware(openDatabase(process.env.AFINADOR_DB ?? resolve('data/afinador.db')));
-    return middleware;
-  };
-  return {
-    name: 'presets-api',
-    configureServer: (server) => void server.middlewares.use(getMiddleware()),
-    configurePreviewServer: (server) => void server.middlewares.use(getMiddleware()),
-  };
-}
-
+// App 100 % estática: las afinaciones se guardan en el navegador (src/store.js).
+// BASE_PATH permite publicarla en un subdirectorio, p. ej. GitHub Pages (/guitar-tuner/).
 export default defineConfig({
-  plugins: [presetsApi()],
-  server: { watch: { ignored: ['**/data/**'] } },
+  base: process.env.BASE_PATH ?? '/',
+  plugins: [
+    VitePWA({
+      registerType: 'autoUpdate',
+      includeAssets: ['icon.svg', 'apple-touch-icon.png'],
+      manifest: {
+        name: 'Afinador de guitarra',
+        short_name: 'Afinador',
+        description: 'Afinador de guitarra acústica con detección automática de cuerda.',
+        lang: 'es',
+        display: 'standalone',
+        orientation: 'portrait',
+        background_color: '#0e1014',
+        theme_color: '#0e1014',
+        icons: [
+          { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+      },
+      workbox: { globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'] },
+    }),
+  ],
 });

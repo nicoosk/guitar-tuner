@@ -1,4 +1,4 @@
-// Definiciones de afinaciones compartidas entre el navegador y el servidor.
+// Definiciones de afinaciones predefinidas y validación de datos del usuario.
 // Cada preset: { id, name, isDefault, strings: [hz 6ª, 5ª, 4ª, 3ª, 2ª, 1ª] }
 
 import { STRING_COUNT } from './tuning.js';
