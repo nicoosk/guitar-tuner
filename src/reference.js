@@ -73,6 +73,26 @@ export function click(when, accent = false) {
   osc.stop(when + 0.06);
 }
 
+/**
+ * Aviso breve de cuerda afinada: dos notas agudas (sobre el rango que analiza el micrófono,
+ * para que el afinador no las tome por la guitarra).
+ */
+export function chime() {
+  const ac = audioContext();
+  const start = ac.currentTime + 0.01;
+  [2093, 2637].forEach((freq, i) => {
+    const when = start + i * 0.09;
+    const osc = new OscillatorNode(ac, { type: 'sine', frequency: freq });
+    const gain = new GainNode(ac, { gain: 0 });
+    gain.gain.setValueAtTime(0, when);
+    gain.gain.linearRampToValueAtTime(0.08, when + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.0005, when + 0.35);
+    osc.connect(gain).connect(ac.destination);
+    osc.start(when);
+    osc.stop(when + 0.4);
+  });
+}
+
 /** Reproduce `freq` Hz; `onEnd` se llama cuando el tono termina solo (no al detenerlo). */
 export function playReference(freq, onEnd) {
   stopReference();

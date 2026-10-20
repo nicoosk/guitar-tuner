@@ -47,27 +47,38 @@ test('rechaza datos inválidos', async () => {
   await assert.rejects(api.setActivePreset('no-existe'), /no encontrada/);
 });
 
-test('restaurar repone predefinidas editadas o borradas y conserva las personalizadas', async () => {
-  await api.updatePreset('standard', { name: 'Editada', strings: [80, 110, 146.83, 196, 246.94, 329.63] });
-  await api.deletePreset('dadgad');
-  const custom = await api.createPreset({ name: 'Custom', strings: [82, 110, 146, 196, 246, 329] });
-
-  const { presets } = await api.restoreDefaults();
-  const standard = presets.find((p) => p.id === 'standard');
-  assert.equal(standard.name, DEFAULT_PRESETS[0].name);
-  assert.equal(standard.strings[0], 82.41);
+test('las predefinidas son de solo lectura', async () => {
+  const strings = [80, 110, 146.83, 196, 246.94, 329.63];
+  await assert.rejects(api.updatePreset('standard', { name: 'Editada', strings }), /predefinidas/);
+  await assert.rejects(api.deletePreset('dadgad'), /predefinidas/);
+  const { presets } = await api.fetchPresets();
+  assert.equal(presets.find((p) => p.id === 'standard').strings[0], 82.41);
   assert.ok(presets.some((p) => p.id === 'dadgad'));
-  assert.equal(presets.at(-1).id, custom.id);
 });
 
-test('no permite eliminar la última afinación', async () => {
-  const { presets } = await api.fetchPresets();
-  for (const p of presets.slice(1)) await api.deletePreset(p.id);
-  await assert.rejects(api.deletePreset(presets[0].id), /al menos una/);
+test('migra una predefinida editada antes a una personalizada y la mantiene activa', () => {
+  const legacy = memoryStorage();
+  legacy.setItem(STORAGE_KEY, JSON.stringify({
+    presets: [
+      { id: 'standard', name: 'Estándar (E A D G B E)', isDefault: true, strings: [80, 110, 146.83, 196, 246.94, 329.63] },
+      { id: 'drop-d', name: 'Drop D (D A D G B E)', isDefault: true, strings: [73.42, 110, 146.83, 196, 246.94, 329.63] },
+    ],
+    activeId: 'standard',
+  }));
+  const store = openStore(legacy);
+  const list = store.list();
+  assert.deepEqual(list.slice(0, DEFAULT_PRESETS.length).map((p) => p.id), DEFAULT_PRESETS.map((p) => p.id), 'las predefinidas vuelven completas');
+  assert.equal(list.find((p) => p.id === 'standard').strings[0], 82.41);
+  const migrated = list.at(-1);
+  assert.equal(migrated.name, 'Estándar (editada)');
+  assert.equal(migrated.isDefault, false);
+  assert.equal(migrated.strings[0], 80);
+  assert.equal(list.length, DEFAULT_PRESETS.length + 1, 'una predefinida sin cambios no se duplica');
+  assert.equal(store.getActiveId(), migrated.id);
 });
 
 test('guarda y valida la sensibilidad del micrófono', async () => {
-  assert.deepEqual(await api.fetchSettings(), { sensitivityDb: -44.5, view: 'tuner' });
+  assert.deepEqual(await api.fetchSettings(), { sensitivityDb: -44.5, chime: true, view: 'tuner' });
   assert.equal((await api.updateSettings({ sensitivityDb: -38.27 })).sensitivityDb, -38.3);
   await assert.rejects(api.updateSettings({ sensitivityDb: -5 }), /fuera de rango/);
   await assert.rejects(api.updateSettings({ sensitivityDb: 'x' }), /fuera de rango/);
@@ -75,7 +86,9 @@ test('guarda y valida la sensibilidad del micrófono', async () => {
 });
 
 test('guarda el modo (afinador / tablaturas) sin tocar la sensibilidad', async () => {
-  assert.deepEqual(await api.updateSettings({ view: 'tabs' }), { sensitivityDb: -38.3, view: 'tabs' });
+  assert.deepEqual(await api.updateSettings({ view: 'tabs' }), { sensitivityDb: -38.3, chime: true, view: 'tabs' });
+  assert.equal((await api.updateSettings({ chime: false })).chime, false);
+  await assert.rejects(api.updateSettings({ chime: 'sí' }), /sonido/);
   await assert.rejects(api.updateSettings({ view: 'otro' }), /Vista no válida/);
   assert.equal((await api.fetchSettings()).view, 'tabs');
 });
@@ -128,8 +141,8 @@ test('ignora datos guardados corruptos o inválidos', () => {
     tabs: [{ id: 't1', name: 'Ok', bpm: 90, measures: 1, beatsPerMeasure: 4, subdivision: 2, notes: [[0, 0, 3], [99, 0, 1], [1, 9, 1], [2, 0, 30]] }, { id: 't2', name: 'Mala', bpm: 0 }],
   }));
   const store = openStore(broken);
-  assert.deepEqual(store.list().map((p) => p.id), ['ok']);
-  assert.equal(store.getActiveId(), 'ok');
+  assert.deepEqual(store.list().map((p) => p.id), [...DEFAULT_PRESETS.map((p) => p.id), 'ok']);
+  assert.equal(store.getActiveId(), 'standard', 'si la activa guardada no existe, vuelve a la primera');
   assert.equal(store.getSettings().sensitivityDb, -44.5);
   assert.equal(store.getSettings().view, 'tuner');
   assert.deepEqual(store.listTabs().map((t) => [t.id, t.notes]), [['t1', [[0, 0, 3]]]], 'descarta notas fuera de rango y tablaturas inválidas');

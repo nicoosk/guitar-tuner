@@ -2,12 +2,13 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0e1014" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0e1014" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f4f1ea" media="(prefers-color-scheme: light)" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Afinador" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>Afinador de guitarra</title>
@@ -15,38 +16,30 @@
   <body>
     <div class="app">
       <header class="topbar">
-        <span class="brand" title="Afinador"><span data-icon="Guitar"></span></span>
-        <label class="visually-hidden" for="preset-select">Afinación</label>
-        <select id="preset-select" class="preset-select"></select>
-        <div class="toolbar">
-          <button id="edit-preset" class="icon-btn" type="button" title="Editar afinación" aria-label="Editar afinación">
-            <span data-icon="Pencil"></span>
+        <button id="tuning-btn" class="title-btn" type="button" aria-haspopup="dialog">
+          <span class="title-text">
+            <span id="tuning-name" class="title-name">Estándar</span>
+            <span id="tuning-notes" class="title-sub">E A D G B E</span>
+          </span>
+          <span data-icon="ChevronDown" class="title-chevron"></span>
+        </button>
+
+        <nav class="view-switch" aria-label="Modo">
+          <button id="view-tuner" class="view-btn" type="button" data-view="tuner" aria-pressed="true">
+            <span data-icon="Gauge"></span><span>Afinador</span>
           </button>
-          <button id="new-preset" class="icon-btn" type="button" title="Nueva afinación" aria-label="Nueva afinación">
-            <span data-icon="Plus"></span>
+          <button id="view-tabs" class="view-btn" type="button" data-view="tabs" aria-pressed="false">
+            <span data-icon="ListMusic"></span><span>Tablaturas</span>
           </button>
-          <button id="restore-defaults" class="icon-btn" type="button" title="Restaurar afinaciones predefinidas" aria-label="Restaurar afinaciones predefinidas">
-            <span data-icon="RotateCcw"></span>
-          </button>
-        </div>
+        </nav>
+
+        <button id="settings-btn" class="icon-btn ghost" type="button" title="Ajustes" aria-label="Ajustes" aria-haspopup="dialog">
+          <span data-icon="Settings"></span>
+        </button>
       </header>
 
-      <div id="app-error" class="banner" role="alert" hidden>
-        <span data-icon="TriangleAlert"></span>
-        <span id="app-error-text"></span>
-      </div>
-
-      <nav class="view-switch" aria-label="Modo">
-        <button id="view-tuner" class="view-btn" type="button" data-view="tuner" aria-pressed="true">
-          <span data-icon="Gauge"></span> Afinador
-        </button>
-        <button id="view-tabs" class="view-btn" type="button" data-view="tabs" aria-pressed="false">
-          <span data-icon="ListMusic"></span> Tablaturas
-        </button>
-      </nav>
-
-      <main id="tuner-view">
-        <section class="meter idle">
+      <main id="tuner-view" class="tuner-view">
+        <section class="meter off" aria-label="Medidor">
           <svg class="gauge" viewBox="0 0 300 170" aria-hidden="true">
             <path class="gauge-arc" d="M 30 150 A 120 120 0 0 1 270 150" />
             <path class="gauge-zone" id="gauge-zone" />
@@ -58,186 +51,210 @@
           </svg>
 
           <div class="reading">
-            <div id="note-ring" class="note-ring empty">
-              <span data-icon="Mic" class="listening"></span>
-              <span id="target-note" class="target-note"></span>
-              <span id="target-string" class="ring-badge"></span>
-            </div>
-
-            <div class="status-row" aria-hidden="true">
-              <span data-icon="ArrowUp" class="status-icon si-flat"></span>
-              <span id="cents" class="cents">—</span>
-              <span data-icon="ArrowDown" class="status-icon si-sharp"></span>
-              <span data-icon="Check" class="status-icon si-ok"></span>
-            </div>
-            <p id="status" class="visually-hidden" aria-live="polite">Esperando sonido…</p>
-
-            <div class="details">
-              <span class="detail" title="Frecuencia detectada">
-                <span data-icon="AudioWaveform"></span>
-                <strong id="detected-hz">—</strong>
-                <small id="detected-note"></small>
-              </span>
-              <span class="detail" title="Frecuencia objetivo">
-                <span data-icon="Target"></span>
-                <strong id="target-hz">—</strong>
-              </span>
-              <button id="play-ref" class="icon-btn play-btn" type="button" title="Escuchar nota de referencia" aria-label="Escuchar nota de referencia" aria-pressed="false" disabled>
-                <span data-icon="Volume2"></span>
+            <div class="ring-wrap">
+              <div id="note-ring" class="note-ring empty">
+                <span data-icon="Mic" class="listening"></span>
+                <span id="target-note" class="target-note"></span>
+                <span data-icon="Check" class="ring-done"></span>
+                <span id="target-string" class="ring-badge"></span>
+              </div>
+              <button id="start-btn" class="start-btn" type="button">
+                <span data-icon="Mic"></span>
+                <span class="visually-hidden">Activar micrófono</span>
               </button>
             </div>
 
-            <div id="signal" class="signal" title="Nivel del micrófono · arrastra para ajustar la sensibilidad">
-              <span data-icon="Mic"></span>
-              <input id="sensitivity" class="sensitivity" type="range" step="0.5" aria-label="Umbral de sensibilidad del micrófono" />
-            </div>
+            <p class="status-line" aria-hidden="true">
+              <span data-icon="ArrowRight" class="status-icon si-flat"></span>
+              <span id="status-word" class="status-word">Activar micrófono</span>
+              <span data-icon="ArrowLeft" class="status-icon si-sharp"></span>
+            </p>
+            <p id="status-detail" class="status-detail">El audio no sale de tu dispositivo</p>
+            <p id="status" class="visually-hidden" aria-live="polite"></p>
           </div>
         </section>
 
-        <section class="strings-section">
-          <button id="mode-chip" class="mode-chip" type="button" disabled>
-            <span data-icon="Sparkles" class="mode-icon-auto"></span>
-            <span data-icon="Lock" class="mode-icon-manual"></span>
-            <span id="mode-label">Auto</span>
-            <span data-icon="X" class="mode-icon-manual"></span>
-          </button>
+        <section class="strings-section" aria-label="Cuerdas">
+          <div class="strings-head">
+            <p id="strings-hint" class="strings-hint">Toca una cuerda para escucharla</p>
+            <button id="mode-chip" class="mode-chip" type="button" aria-label="Volver a detección automática" hidden>
+              <span data-icon="Lock"></span>
+              <span id="mode-label">6ª cuerda</span>
+              <span data-icon="X"></span>
+            </button>
+          </div>
           <div id="strings" class="strings"></div>
         </section>
       </main>
 
       <main id="tabs-view" class="tabs-view" hidden>
-        <div id="tab-bar" class="tab-bar">
-          <label class="visually-hidden" for="tab-select">Tablatura</label>
-          <select id="tab-select" class="preset-select"></select>
-          <div class="toolbar">
-            <button id="edit-tab" class="icon-btn" type="button" title="Ajustes de la tablatura" aria-label="Ajustes de la tablatura">
-              <span data-icon="SlidersHorizontal"></span>
-            </button>
-            <button id="new-tab" class="icon-btn" type="button" title="Nueva tablatura" aria-label="Nueva tablatura">
-              <span data-icon="Plus"></span>
-            </button>
-          </div>
-        </div>
-
         <div id="tab-empty" class="tab-empty" hidden>
           <span data-icon="ListMusic" class="tab-empty-icon"></span>
-          <p>Escribe tus propias tablaturas: pon el número de traste en cada cuerda y reprodúcelas con la afinación seleccionada.</p>
+          <h2>Tus tablaturas</h2>
+          <p>Escribe los trastes sobre cada cuerda y escucha cómo suena con la afinación elegida.</p>
           <div class="tab-empty-actions">
             <button id="tab-empty-create" class="btn btn-primary" type="button"><span data-icon="Plus"></span> Nueva tablatura</button>
-            <button id="tab-empty-example" class="btn btn-secondary" type="button"><span data-icon="Sparkles"></span> Cargar ejemplo</button>
+            <button id="tab-empty-example" class="btn btn-secondary" type="button">Ver un ejemplo</button>
           </div>
         </div>
 
         <div id="tab-workspace" class="tab-workspace" hidden>
-          <div class="transport">
-            <button id="tab-play" class="transport-play" type="button" aria-label="Reproducir" title="Reproducir / detener (espacio)">
-              <span data-icon="Play" class="icon-play"></span>
-              <span data-icon="Square" class="icon-stop"></span>
+          <div class="tab-bar">
+            <button id="tab-title" class="title-btn" type="button" aria-haspopup="dialog">
+              <span class="title-text">
+                <span id="tab-name-label" class="title-name"></span>
+              </span>
+              <span data-icon="ChevronDown" class="title-chevron"></span>
             </button>
-            <div class="bpm-control">
-              <button id="bpm-down" class="icon-btn" type="button" title="Más lento" aria-label="Bajar tempo"><span data-icon="Minus"></span></button>
-              <label class="bpm-value">
-                <input id="bpm-input" type="number" inputmode="numeric" step="1" aria-label="Tempo en BPM" />
-                <span>BPM</span>
-              </label>
-              <button id="bpm-up" class="icon-btn" type="button" title="Más rápido" aria-label="Subir tempo"><span data-icon="Plus"></span></button>
-            </div>
-            <span class="spacer"></span>
-            <button id="tab-loop" class="icon-btn toggle" type="button" title="Repetir" aria-label="Repetir" aria-pressed="false"><span data-icon="Repeat"></span></button>
-            <button id="tab-metronome" class="icon-btn toggle" type="button" title="Metrónomo" aria-label="Metrónomo" aria-pressed="false"><span data-icon="Metronome"></span></button>
+            <button id="edit-tab" class="icon-btn ghost" type="button" title="Ajustes de la tablatura" aria-label="Ajustes de la tablatura" aria-haspopup="dialog">
+              <span data-icon="SlidersHorizontal"></span>
+            </button>
           </div>
-
-          <p id="tab-meta" class="tab-meta"></p>
 
           <div id="tab-scroll" class="tab-scroll">
-            <div id="tab-grid" class="tab-grid" aria-label="Tablatura: toca una celda y elige el traste"></div>
+            <div id="tab-grid" class="tab-grid" tabindex="0" role="group" aria-label="Tablatura" aria-describedby="fret-pad-label"></div>
           </div>
+          <p class="kbd-hint">Números para el traste · flechas para moverte · Borrar para quitar · espacio para reproducir</p>
 
-          <div class="fret-pad">
-            <div class="fret-pad-head">
-              <span id="fret-pad-label" class="fret-pad-label" aria-live="polite"></span>
-              <button id="fret-prev" class="icon-btn" type="button" title="Paso anterior" aria-label="Paso anterior"><span data-icon="ChevronLeft"></span></button>
-              <button id="fret-next" class="icon-btn" type="button" title="Paso siguiente" aria-label="Paso siguiente"><span data-icon="ChevronRight"></span></button>
-              <button id="fret-clear" class="icon-btn danger" type="button" title="Borrar nota" aria-label="Borrar nota"><span data-icon="Eraser"></span></button>
+          <div class="tab-dock">
+            <div class="transport">
+              <button id="tab-play" class="transport-play" type="button" aria-label="Reproducir" title="Reproducir / detener (espacio)">
+                <span data-icon="Play" class="icon-play"></span>
+                <span data-icon="Square" class="icon-stop"></span>
+              </button>
+              <div class="bpm-control">
+                <button id="bpm-down" class="icon-btn ghost" type="button" title="Más lento" aria-label="Bajar tempo"><span data-icon="Minus"></span></button>
+                <label class="bpm-value">
+                  <input id="bpm-input" type="number" inputmode="numeric" step="1" aria-label="Tempo en BPM" />
+                  <span aria-hidden="true">BPM</span>
+                </label>
+                <button id="bpm-up" class="icon-btn ghost" type="button" title="Más rápido" aria-label="Subir tempo"><span data-icon="Plus"></span></button>
+              </div>
+              <span class="spacer"></span>
+              <button id="tab-loop" class="icon-btn ghost toggle" type="button" title="Repetir" aria-label="Repetir" aria-pressed="false"><span data-icon="Repeat"></span></button>
+              <button id="tab-metronome" class="icon-btn ghost toggle" type="button" title="Metrónomo" aria-label="Metrónomo" aria-pressed="false"><span data-icon="Metronome"></span></button>
             </div>
-            <div id="fret-keys" class="fret-keys"></div>
+
+            <div class="fret-pad">
+              <div class="fret-pad-head">
+                <button id="fret-prev" class="icon-btn ghost" type="button" title="Paso anterior" aria-label="Paso anterior"><span data-icon="ChevronLeft"></span></button>
+                <span id="fret-pad-label" class="fret-pad-label" aria-live="polite"></span>
+                <button id="fret-next" class="icon-btn ghost" type="button" title="Paso siguiente" aria-label="Paso siguiente"><span data-icon="ChevronRight"></span></button>
+              </div>
+              <div id="fret-keys" class="fret-keys"></div>
+            </div>
           </div>
         </div>
       </main>
     </div>
 
-    <div id="start-overlay" class="overlay">
-      <div class="overlay-card">
-        <button id="start-btn" class="start-btn" type="button" title="Activar micrófono" aria-label="Activar micrófono">
-          <span data-icon="Mic"></span>
-        </button>
-        <p class="overlay-caption">Activar micrófono</p>
-        <p class="overlay-note"><span data-icon="ShieldCheck"></span> El audio no sale de tu navegador</p>
-        <p id="start-error" class="error" hidden></p>
-      </div>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden>
+      <span id="toast-text" class="toast-text"></span>
+      <button id="toast-action" class="toast-action" type="button" hidden>Deshacer</button>
+      <button id="toast-close" class="toast-close" type="button" aria-label="Cerrar aviso"><span data-icon="X"></span></button>
     </div>
 
-    <dialog id="editor" class="editor">
+    <!-- Afinaciones -->
+    <dialog id="tuning-sheet" class="sheet" aria-labelledby="tuning-sheet-title">
+      <div class="sheet-head">
+        <h2 id="tuning-sheet-title">Afinación</h2>
+        <button class="icon-btn ghost" type="button" data-close title="Cerrar" aria-label="Cerrar"><span data-icon="X"></span></button>
+      </div>
+      <ul id="tuning-list" class="pick-list"></ul>
+      <div class="sheet-foot">
+        <button id="new-preset" class="btn btn-secondary btn-block" type="button"><span data-icon="Plus"></span> <span id="new-preset-label">Nueva afinación</span></button>
+      </div>
+    </dialog>
+
+    <dialog id="editor" class="sheet" aria-labelledby="editor-title">
       <form id="editor-form" novalidate>
-        <div class="editor-head">
+        <div class="sheet-head">
           <h2 id="editor-title">Editar afinación</h2>
-          <button id="cancel-edit" class="icon-btn" type="button" title="Cancelar" aria-label="Cancelar">
-            <span data-icon="X"></span>
-          </button>
+          <button id="cancel-edit" class="icon-btn ghost" type="button" title="Cancelar" aria-label="Cancelar"><span data-icon="X"></span></button>
         </div>
-        <label class="name-field">
-          <span data-icon="Tag"></span>
-          <input id="preset-name" type="text" maxlength="40" required autocomplete="off" placeholder="Nombre" aria-label="Nombre de la afinación" />
+        <label class="field">
+          <span class="field-label">Nombre</span>
+          <input id="preset-name" type="text" maxlength="40" required autocomplete="off" aria-describedby="editor-error" />
         </label>
-        <div id="editor-strings" class="editor-strings"></div>
-        <p id="editor-error" class="error" hidden></p>
-        <div class="editor-actions">
-          <button id="delete-preset" class="icon-btn danger" type="button" title="Eliminar afinación" aria-label="Eliminar afinación">
-            <span data-icon="Trash2"></span>
-          </button>
+        <div class="field">
+          <span class="field-label">Frecuencia de cada cuerda</span>
+          <div id="editor-strings" class="editor-strings"></div>
+        </div>
+        <p id="editor-error" class="error" role="alert" hidden></p>
+        <div class="sheet-actions">
+          <button id="delete-preset" class="btn btn-quiet-danger" type="button"><span data-icon="Trash2"></span> Eliminar</button>
           <span class="spacer"></span>
-          <button class="btn btn-primary" type="submit"><span data-icon="Check"></span> Guardar</button>
+          <button class="btn btn-primary" type="submit">Guardar</button>
         </div>
       </form>
     </dialog>
 
-    <dialog id="tab-editor" class="editor">
-      <form id="tab-editor-form" novalidate>
-        <div class="editor-head">
-          <h2 id="tab-editor-title">Nueva tablatura</h2>
-          <button id="tab-editor-cancel" class="icon-btn" type="button" title="Cancelar" aria-label="Cancelar">
-            <span data-icon="X"></span>
-          </button>
+    <!-- Ajustes -->
+    <dialog id="settings-sheet" class="sheet" aria-labelledby="settings-title">
+      <div class="sheet-head">
+        <h2 id="settings-title">Ajustes</h2>
+        <button class="icon-btn ghost" type="button" data-close title="Cerrar" aria-label="Cerrar"><span data-icon="X"></span></button>
+      </div>
+      <div class="field">
+        <label class="field-label" for="sensitivity">Sensibilidad del micrófono</label>
+        <div id="signal" class="signal">
+          <span class="signal-end">Más</span>
+          <input id="sensitivity" class="sensitivity" type="range" step="0.5" aria-describedby="sensitivity-help" />
+          <span class="signal-end">Menos</span>
         </div>
-        <label class="name-field">
-          <span data-icon="Tag"></span>
-          <input id="tab-name" type="text" maxlength="40" required autocomplete="off" placeholder="Nombre" aria-label="Nombre de la tablatura" />
+        <p id="sensitivity-help" class="field-help">Lo que suene por debajo de la marca se ignora. Si reacciona a ruidos, muévela a la derecha; si no detecta la guitarra, a la izquierda.</p>
+      </div>
+      <label class="switch-row">
+        <span>
+          <span class="switch-title">Sonido al afinar una cuerda</span>
+          <span class="field-help">Un aviso corto cuando la cuerda queda afinada.</span>
+        </span>
+        <input id="chime-toggle" class="switch" type="checkbox" role="switch" />
+      </label>
+    </dialog>
+
+    <!-- Tablaturas -->
+    <dialog id="tab-sheet" class="sheet" aria-labelledby="tab-sheet-title">
+      <div class="sheet-head">
+        <h2 id="tab-sheet-title">Tablaturas</h2>
+        <button class="icon-btn ghost" type="button" data-close title="Cerrar" aria-label="Cerrar"><span data-icon="X"></span></button>
+      </div>
+      <ul id="tab-list" class="pick-list"></ul>
+      <div class="sheet-foot">
+        <button id="new-tab" class="btn btn-secondary btn-block" type="button"><span data-icon="Plus"></span> Nueva tablatura</button>
+      </div>
+    </dialog>
+
+    <dialog id="tab-editor" class="sheet" aria-labelledby="tab-editor-title">
+      <form id="tab-editor-form" novalidate>
+        <div class="sheet-head">
+          <h2 id="tab-editor-title">Ajustes de la tablatura</h2>
+          <button id="tab-editor-cancel" class="icon-btn ghost" type="button" title="Cancelar" aria-label="Cancelar"><span data-icon="X"></span></button>
+        </div>
+        <label class="field">
+          <span class="field-label">Nombre</span>
+          <input id="tab-name" type="text" maxlength="40" required autocomplete="off" aria-describedby="tab-editor-error" />
         </label>
         <div class="tab-fields">
-          <label class="tab-field">
-            <span>Tempo (BPM)</span>
-            <input id="tab-bpm" type="number" inputmode="numeric" step="1" required />
-          </label>
-          <label class="tab-field">
-            <span>Largo (compases)</span>
+          <label class="field">
+            <span class="field-label">Compases</span>
             <input id="tab-measures" type="number" inputmode="numeric" step="1" min="1" max="64" required />
           </label>
-          <label class="tab-field">
-            <span>Tiempos por compás</span>
+          <label class="field">
+            <span class="field-label">Tiempos por compás</span>
             <input id="tab-beats" type="number" inputmode="numeric" step="1" min="1" max="12" required />
           </label>
-          <label class="tab-field">
-            <span>Notas por tiempo</span>
+          <label class="field field-wide">
+            <span class="field-label">Notas por tiempo</span>
             <select id="tab-subdivision"></select>
           </label>
         </div>
-        <p id="tab-editor-error" class="error" hidden></p>
-        <div class="editor-actions">
-          <button id="tab-editor-delete" class="icon-btn danger" type="button" title="Eliminar tablatura" aria-label="Eliminar tablatura">
-            <span data-icon="Trash2"></span>
-          </button>
+        <p id="tab-editor-warning" class="warning" hidden></p>
+        <p id="tab-editor-error" class="error" role="alert" hidden></p>
+        <div class="sheet-actions">
+          <button id="tab-editor-delete" class="btn btn-quiet-danger" type="button"><span data-icon="Trash2"></span> Eliminar</button>
           <span class="spacer"></span>
-          <button class="btn btn-primary" type="submit"><span data-icon="Check"></span> Guardar</button>
+          <button class="btn btn-primary" type="submit">Guardar</button>
         </div>
       </form>
     </dialog>

@@ -18,9 +18,10 @@ import {
   validatePreset,
 } from './presets-shared.js';
 import * as api from './api.js';
-import { mountIcons } from './icons.js';
-import { playReference, stopReference } from './reference.js';
+import { icon, mountIcons } from './icons.js';
+import { chime, playReference, stopReference } from './reference.js';
 import { createTabView } from './tab-view.js';
+import { canAutofocus, createToast, setupSheet, tuningNotes } from './ui.js';
 import { keepScreenAwake } from './wakelock.js';
 
 const IN_TUNE_CENTS = 3; // margen para considerar la cuerda afinada
@@ -28,16 +29,17 @@ const HOLD_MS = 600; // tiempo afinada antes de marcarla con ✓
 const SIGNAL_TIMEOUT_MS = 1500; // sin sonido por este tiempo → estado de espera
 const GAUGE_RANGE_CENTS = 50;
 const GAUGE_ANGLE = 60; // grados a cada lado del centro
+const FAR_CENTS = 100; // desde aquí se muestra la nota que suena en vez de los cents
 const SMOOTHING = 0.3;
 const REFERENCE_TAIL_MS = 400; // se ignora el micrófono un momento tras el tono (eco de la sala)
+const COMPLETE_HOLD_MS = 2500; // "Guitarra afinada" se mantiene al menos este tiempo
 
 const $ = (id) => document.getElementById(id);
 const els = {
-  presetSelect: $('preset-select'),
-  editPreset: $('edit-preset'),
-  newPreset: $('new-preset'),
-  appError: $('app-error'),
-  appErrorText: $('app-error-text'),
+  tuningBtn: $('tuning-btn'),
+  tuningName: $('tuning-name'),
+  tuningNotes: $('tuning-notes'),
+  settingsBtn: $('settings-btn'),
   needle: $('needle'),
   gaugeTicks: $('gauge-ticks'),
   gaugeZone: $('gauge-zone'),
@@ -45,21 +47,18 @@ const els = {
   noteRing: $('note-ring'),
   targetNote: $('target-note'),
   targetString: $('target-string'),
-  status: $('status'),
-  detectedHz: $('detected-hz'),
-  detectedNote: $('detected-note'),
-  targetHz: $('target-hz'),
-  playRef: $('play-ref'),
-  signal: $('signal'),
-  sensitivity: $('sensitivity'),
-  cents: $('cents'),
-  modeLabel: $('mode-label'),
-  modeChip: $('mode-chip'),
-  strings: $('strings'),
-  restoreDefaults: $('restore-defaults'),
-  overlay: $('start-overlay'),
   startBtn: $('start-btn'),
-  startError: $('start-error'),
+  statusWord: $('status-word'),
+  statusDetail: $('status-detail'),
+  status: $('status'),
+  stringsHint: $('strings-hint'),
+  modeChip: $('mode-chip'),
+  modeLabel: $('mode-label'),
+  strings: $('strings'),
+  tuningSheet: $('tuning-sheet'),
+  tuningList: $('tuning-list'),
+  newPreset: $('new-preset'),
+  newPresetLabel: $('new-preset-label'),
   editor: $('editor'),
   editorForm: $('editor-form'),
   editorTitle: $('editor-title'),
@@ -68,6 +67,10 @@ const els = {
   editorError: $('editor-error'),
   deletePreset: $('delete-preset'),
   cancelEdit: $('cancel-edit'),
+  settingsSheet: $('settings-sheet'),
+  signal: $('signal'),
+  sensitivity: $('sensitivity'),
+  chimeToggle: $('chime-toggle'),
   viewButtons: document.querySelectorAll('.view-btn'),
   tunerView: $('tuner-view'),
   tabsView: $('tabs-view'),
@@ -76,34 +79,34 @@ const els = {
 const state = {
   presets: [],
   activeId: null,
-  lockedIndex: null, // cuerda fijada manualmente (null = detección automática)
+  lockedIndex: null, // cuerda fijada al tocarla en pantalla (null = detección automática)
   detectedIndex: null,
   displayCents: 0,
   lastSignalAt: 0,
   idle: true,
   inTuneSince: null,
   tuned: new Set(),
+  completeUntil: 0, // > 0 mientras se muestra "Guitarra afinada"
   editingId: null, // null = creando una nueva
   sensitivityDb: DEFAULT_SENSITIVITY_DB,
+  chime: true,
   referencePlaying: false,
-  ignoreUntil: 0, // hasta cuándo ignorar el micrófono tras el tono de referencia
+  ignoreUntil: 0, // hasta cuándo ignorar el micrófono tras el tono de referencia o el aviso
   view: 'tuner', // 'tuner' | 'tabs'
+  mic: 'off', // 'off' | 'starting' | 'on' | 'error'
+  micError: '',
+  micPermission: 'prompt', // estado del permiso del navegador, si se puede consultar
+  announced: '',
 };
 
 let tuner = null;
-let micActive = false;
 let tabView = null;
+const toast = createToast();
 
 const activePreset = () => state.presets.find((p) => p.id === state.activeId) ?? state.presets[0];
-
-// ---------- Errores ----------
-
-function showError(message) {
-  els.appErrorText.textContent = message;
-  els.appError.hidden = false;
-  clearTimeout(showError.timer);
-  showError.timer = setTimeout(() => (els.appError.hidden = true), 6000);
-}
+const showError = (message) => toast.show(message, { error: true });
+const noteLabel = (hz) => noteFromFrequency(hz).label;
+const formatCents = (c) => `${c > 0 ? '+' : c < 0 ? '−' : ''}${Math.abs(c)} ¢`;
 
 // ---------- Medidor ----------
 
@@ -121,17 +124,10 @@ function buildGauge() {
     const major = c % 25 === 0;
     const angle = centsToAngle(c);
     const [x1, y1] = pointOnArc(angle, 120);
-    const [x2, y2] = pointOnArc(angle, major ? 100 : 110);
+    const [x2, y2] = pointOnArc(angle, major ? 102 : 111);
     const line = document.createElementNS(ns, 'line');
     Object.entries({ x1, y1, x2, y2, class: major ? 'tick major' : 'tick' }).forEach(([k, v]) => line.setAttribute(k, v));
     els.gaugeTicks.append(line);
-    if (major) {
-      const [tx, ty] = pointOnArc(angle, 86);
-      const label = document.createElementNS(ns, 'text');
-      Object.entries({ x: tx, y: ty + 4, class: 'tick-label' }).forEach(([k, v]) => label.setAttribute(k, v));
-      label.textContent = c > 0 ? `+${c}` : `${c}`;
-      els.gaugeTicks.append(label);
-    }
   }
   const [zx1, zy1] = pointOnArc(centsToAngle(-IN_TUNE_CENTS), 120);
   const [zx2, zy2] = pointOnArc(centsToAngle(IN_TUNE_CENTS), 120);
@@ -142,6 +138,57 @@ function setNeedle(cents) {
   els.needle.style.transform = `rotate(${centsToAngle(cents)}deg)`;
 }
 
+/** Estado visual del medidor: 'off' | 'idle' | 'flat' | 'sharp' | 'in-tune' | 'complete', más 'playing'. */
+function setMeter(mode) {
+  els.meter.className = `meter ${mode}${state.referencePlaying ? ' playing' : ''}`;
+}
+
+function setStatus(word, detail, spoken) {
+  els.statusWord.textContent = word;
+  els.statusDetail.textContent = detail;
+  // Solo se anuncia cuando cambia el estado, no en cada lectura.
+  if (spoken !== state.announced) {
+    state.announced = spoken;
+    els.status.textContent = spoken;
+  }
+}
+
+function lockedDetail() {
+  const i = state.lockedIndex;
+  return i === null ? 'Detecto sola qué cuerda tocas' : `Solo escucho la ${stringNumber(i)}ª cuerda`;
+}
+
+/** Texto del medidor cuando no hay una lectura en curso. */
+function renderRest() {
+  if (state.completeUntil) {
+    setMeter('complete');
+    setStatus('Guitarra afinada', 'Las 6 cuerdas quedaron afinadas', 'Guitarra afinada: las 6 cuerdas quedaron afinadas');
+    return;
+  }
+  if (state.referencePlaying) {
+    const index = state.lockedIndex ?? state.detectedIndex;
+    const label = noteLabel(activePreset().strings[index]);
+    setMeter(state.mic === 'on' ? 'idle' : 'off');
+    setStatus(`Sonando ${label}`, 'Compárala con tu cuerda', `Sonando ${label}`);
+    return;
+  }
+  if (state.mic === 'on') {
+    setMeter('idle');
+    setStatus('Haz sonar una cuerda', lockedDetail(), 'Esperando sonido');
+    return;
+  }
+  if (state.mic === 'starting') {
+    setMeter('off starting');
+    setStatus('Conectando…', 'Acepta el permiso del micrófono si el navegador lo pide', 'Conectando el micrófono');
+  } else if (state.mic === 'error') {
+    setMeter('off error');
+    setStatus('Sin micrófono', state.micError, `Sin micrófono. ${state.micError}`);
+  } else {
+    setMeter('off');
+    setStatus('Activar micrófono', 'El audio no sale de tu dispositivo', 'Micrófono apagado');
+  }
+}
+
 function showIdle() {
   if (state.idle) return;
   state.idle = true;
@@ -149,13 +196,9 @@ function showIdle() {
   state.inTuneSince = null;
   state.displayCents = 0;
   setNeedle(0);
-  els.meter.className = 'meter idle';
-  els.status.textContent = 'Esperando sonido…';
-  els.detectedHz.textContent = '—';
-  els.detectedNote.textContent = '';
-  els.cents.textContent = '—';
   renderTarget();
   highlightStrings();
+  renderRest();
 }
 
 function onReading(freq, level) {
@@ -168,14 +211,20 @@ function onReading(freq, level) {
     if (now - state.lastSignalAt > SIGNAL_TIMEOUT_MS) showIdle();
     return;
   }
-  state.lastSignalAt = now;
-  state.idle = false;
-
   const preset = activePreset();
   const { index, cents } =
     state.lockedIndex !== null
       ? { index: state.lockedIndex, cents: centsBetween(freq, preset.strings[state.lockedIndex]) }
       : nearestString(freq, preset.strings);
+
+  // "Guitarra afinada" se mantiene mientras lo que suene siga afinado; se va al desafinar algo.
+  if (state.completeUntil) {
+    state.lastSignalAt = now;
+    if (now < state.completeUntil || Math.abs(cents) <= IN_TUNE_CENTS * 2) return;
+    state.completeUntil = 0;
+  }
+  state.lastSignalAt = now;
+  state.idle = false;
 
   if (index !== state.detectedIndex) {
     state.detectedIndex = index;
@@ -188,24 +237,45 @@ function onReading(freq, level) {
   }
 
   const shown = state.displayCents;
+  const rounded = Math.round(shown);
   const inTune = Math.abs(shown) <= IN_TUNE_CENTS;
+  const flat = shown < 0;
   setNeedle(shown);
+  setMeter(inTune ? 'in-tune' : flat ? 'flat' : 'sharp');
 
-  els.meter.className = `meter ${inTune ? 'in-tune' : shown < 0 ? 'flat' : 'sharp'}`;
-  els.status.textContent = inTune ? '¡Afinada!' : shown < 0 ? 'Baja · sube la tensión ↑' : 'Alta · baja la tensión ↓';
-  const detected = noteFromFrequency(freq);
-  els.detectedHz.textContent = `${freq.toFixed(2)} Hz`;
-  els.detectedNote.textContent = detected.label;
-  els.cents.textContent = `${shown > 0 ? '+' : ''}${shown.toFixed(1)} ¢`;
+  const string = `${stringNumber(index)}ª cuerda`;
+  if (inTune) {
+    setStatus('Afinada', formatCents(rounded), `${string}: afinada`);
+  } else if (Math.abs(shown) >= FAR_CENTS) {
+    const sounding = noteLabel(freq);
+    setStatus(flat ? 'Muy baja' : 'Muy alta', `Suena ${sounding} · ${flat ? 'tensa' : 'afloja'} la cuerda`, `${string}: muy ${flat ? 'baja' : 'alta'}`);
+  } else {
+    setStatus(flat ? 'Tensa' : 'Afloja', formatCents(rounded), `${string}: ${flat ? 'baja, tensa' : 'alta, afloja'}`);
+  }
 
   if (inTune) {
     state.inTuneSince ??= now;
-    if (now - state.inTuneSince >= HOLD_MS && !state.tuned.has(index)) {
-      state.tuned.add(index);
-      highlightStrings();
-    }
+    if (now - state.inTuneSince >= HOLD_MS && !state.tuned.has(index)) markTuned(index, now);
   } else {
     state.inTuneSince = null;
+  }
+}
+
+function markTuned(index, now) {
+  state.tuned.add(index);
+  highlightStrings();
+  navigator.vibrate?.(40);
+  if (state.chime) {
+    chime();
+    state.ignoreUntil = now + 450;
+  }
+  if (state.tuned.size === STRING_COUNT) {
+    state.completeUntil = now + COMPLETE_HOLD_MS;
+    state.detectedIndex = null;
+    setNeedle(0);
+    renderTarget();
+    highlightStrings();
+    renderRest();
   }
 }
 
@@ -214,29 +284,24 @@ function renderTarget() {
   if (index == null) {
     els.targetNote.textContent = '';
     els.targetString.textContent = '';
-    els.targetHz.textContent = '—';
     els.noteRing.classList.add('empty');
-    els.playRef.disabled = true;
     return;
   }
   const hz = activePreset().strings[index];
-  els.targetNote.textContent = noteFromFrequency(hz).label;
-  els.targetString.textContent = stringNumber(index);
-  els.targetHz.textContent = `${hz.toFixed(2)} Hz`;
+  els.targetNote.textContent = noteFromFrequency(hz).name;
+  els.targetString.textContent = `${stringNumber(index)}ª`;
   els.noteRing.classList.remove('empty');
-  els.playRef.disabled = false;
 }
 
 // ---------- Tono de referencia ----------
 
-function toggleReference() {
-  if (state.referencePlaying) return endReference(true);
-  const index = state.lockedIndex ?? state.detectedIndex;
-  if (index == null) return;
+function playString(index) {
+  stopReference();
   state.referencePlaying = true;
-  els.meter.classList.add('playing');
-  els.playRef.classList.add('playing');
-  els.playRef.setAttribute('aria-pressed', 'true');
+  state.completeUntil = 0;
+  els.strings.querySelectorAll('.string-btn').forEach((b) => b.classList.toggle('sounding', Number(b.dataset.index) === index));
+  renderTarget();
+  renderRest();
   playReference(activePreset().strings[index], () => endReference(false));
 }
 
@@ -246,9 +311,8 @@ function endReference(stop) {
   state.referencePlaying = false;
   state.ignoreUntil = performance.now() + REFERENCE_TAIL_MS;
   state.lastSignalAt = performance.now();
-  els.meter.classList.remove('playing');
-  els.playRef.classList.remove('playing');
-  els.playRef.setAttribute('aria-pressed', 'false');
+  els.strings.querySelectorAll('.sounding').forEach((b) => b.classList.remove('sounding'));
+  renderRest();
 }
 
 // ---------- Señal y sensibilidad ----------
@@ -257,7 +321,9 @@ const SENSITIVITY_SPAN_DB = SENSITIVITY_MAX_DB - SENSITIVITY_MIN_DB;
 
 function updateSignal(level) {
   const db = Math.max(SENSITIVITY_MIN_DB, Math.min(SENSITIVITY_MAX_DB, amplitudeToDb(level)));
-  els.sensitivity.style.setProperty('--level', `${((db - SENSITIVITY_MIN_DB) / SENSITIVITY_SPAN_DB) * 100}%`);
+  const fraction = (db - SENSITIVITY_MIN_DB) / SENSITIVITY_SPAN_DB;
+  els.sensitivity.style.setProperty('--level', `${fraction * 100}%`);
+  els.noteRing.style.setProperty('--level', fraction.toFixed(2));
   els.signal.classList.toggle('passing', level >= dbToAmplitude(state.sensitivityDb));
 }
 
@@ -267,11 +333,11 @@ function applySensitivity(db) {
   if (tuner) tuner.minRms = dbToAmplitude(db);
 }
 
-async function saveSensitivity() {
+async function saveSetting(changes) {
   try {
-    await api.updateSettings({ sensitivityDb: state.sensitivityDb });
+    await api.updateSettings(changes);
   } catch (err) {
-    showError(`No se pudo guardar la sensibilidad: ${err.message}`);
+    showError(`No se pudo guardar el ajuste: ${err.message}`);
   }
 }
 
@@ -286,17 +352,13 @@ function renderStrings() {
       btn.className = 'string-btn';
       btn.dataset.index = i;
       btn.style.setProperty('--gauge', `${1 + (STRING_COUNT - 1 - i) * 0.5}px`);
-      btn.title = `${stringNumber(i)}ª cuerda`;
-      btn.setAttribute('aria-label', `${stringNumber(i)}ª cuerda, ${noteFromFrequency(hz).label}`);
+      btn.setAttribute('aria-label', `${stringNumber(i)}ª cuerda, ${noteLabel(hz)}. Toca para escucharla`);
       btn.innerHTML = `
         <span class="string-line" aria-hidden="true"></span>
-        <span data-icon="Lock" class="string-lock"></span>
-        <span data-icon="CircleCheck" class="string-check"></span>
         <span class="string-num">${stringNumber(i)}</span>
-        <span class="string-note">${noteFromFrequency(hz).label}</span>
-        <span class="string-hz">${hz.toFixed(2)}</span>`;
-      mountIcons(btn);
-      btn.addEventListener('click', () => toggleLock(i));
+        <span class="string-note">${noteFromFrequency(hz).name}</span>`;
+      btn.append(icon('Check', 'string-check'));
+      btn.addEventListener('click', () => onStringTap(i));
       return btn;
     }),
   );
@@ -312,40 +374,92 @@ function highlightStrings() {
     btn.setAttribute('aria-pressed', String(i === state.lockedIndex));
   });
   const locked = state.lockedIndex !== null;
-  els.modeLabel.textContent = locked ? `${stringNumber(state.lockedIndex)}ª` : 'Auto';
-  els.modeChip.classList.toggle('manual', locked);
-  els.modeChip.disabled = !locked;
-  els.modeChip.title = locked ? 'Volver a detección automática' : 'Detección automática';
+  els.modeChip.hidden = !locked;
+  els.stringsHint.hidden = locked;
+  if (locked) els.modeLabel.textContent = `${stringNumber(state.lockedIndex)}ª cuerda`;
 }
 
-function toggleLock(index) {
+/** Tocar una cuerda la hace sonar y la fija como objetivo; tocarla otra vez mientras suena la calla. */
+function onStringTap(index) {
+  if (state.lockedIndex === index && state.referencePlaying) return endReference(true);
+  if (state.lockedIndex !== index) {
+    state.lockedIndex = index;
+    state.detectedIndex = null;
+    state.inTuneSince = null;
+    state.idle = true;
+    setNeedle(0);
+    highlightStrings();
+  }
+  playString(index);
+}
+
+function unlock() {
   endReference(true);
-  state.lockedIndex = state.lockedIndex === index ? null : index;
+  state.lockedIndex = null;
   state.detectedIndex = null;
   state.inTuneSince = null;
   renderTarget();
   highlightStrings();
+  renderRest();
 }
 
 // ---------- Afinaciones ----------
 
-function renderPresetSelect() {
-  els.presetSelect.replaceChildren(
+function renderTuningTitle() {
+  const preset = activePreset();
+  els.tuningName.textContent = preset.name;
+  els.tuningNotes.textContent = tuningNotes(preset.strings);
+  els.tuningBtn.setAttribute('aria-label', `Afinación: ${preset.name}, ${tuningNotes(preset.strings)}. Cambiar`);
+}
+
+function renderTuningList() {
+  const active = activePreset();
+  els.tuningList.replaceChildren(
     ...state.presets.map((p) => {
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = p.name;
-      return opt;
+      const li = document.createElement('li');
+      li.className = 'pick-item';
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'pick-row';
+      if (p.id === active.id) row.setAttribute('aria-current', 'true');
+      row.innerHTML = `<span class="pick-main"><span class="pick-name"></span><span class="pick-sub">${tuningNotes(p.strings)}</span></span>`;
+      row.querySelector('.pick-name').textContent = p.name;
+      row.append(icon('Check', 'pick-check'));
+      row.addEventListener('click', () => {
+        els.tuningSheet.close();
+        if (p.id !== state.activeId) selectPreset(p.id);
+      });
+      li.append(row);
+      if (!p.isDefault) {
+        const edit = document.createElement('button');
+        edit.type = 'button';
+        edit.className = 'icon-btn ghost';
+        edit.setAttribute('aria-label', `Editar ${p.name}`);
+        edit.title = 'Editar';
+        edit.append(icon('Pencil'));
+        edit.addEventListener('click', () => {
+          els.tuningSheet.close();
+          openEditor(p);
+        });
+        li.append(edit);
+      }
+      return li;
     }),
   );
-  els.presetSelect.value = activePreset()?.id ?? '';
+  els.newPresetLabel.textContent = `Nueva a partir de ${active.name}`;
+}
+
+function openTuningSheet() {
+  renderTuningList();
+  els.tuningSheet.showModal();
+  els.tuningList.querySelector('[aria-current]')?.focus();
 }
 
 function applySnapshot({ presets, activeId }) {
   state.presets = presets;
   state.activeId = activeId;
   resetTuningSession();
-  renderPresetSelect();
+  renderTuningTitle();
   renderStrings();
   tabView?.onTuningChange();
 }
@@ -355,19 +469,22 @@ function resetTuningSession() {
   state.lockedIndex = null;
   state.detectedIndex = null;
   state.inTuneSince = null;
+  state.completeUntil = 0;
   state.tuned.clear();
   renderTarget();
+  renderRest();
 }
 
 async function selectPreset(id) {
   state.activeId = id;
   resetTuningSession();
+  renderTuningTitle();
   renderStrings();
   tabView?.onTuningChange();
   try {
     await api.setActivePreset(id);
   } catch (err) {
-    showError(`No se pudo guardar la afinación activa: ${err.message}`);
+    showError(`No se pudo guardar la afinación elegida: ${err.message}`);
   }
 }
 
@@ -381,9 +498,10 @@ function openEditor(preset) {
   state.editingId = preset?.id ?? null;
   const base = preset ?? activePreset();
   els.editorTitle.textContent = preset ? 'Editar afinación' : 'Nueva afinación';
-  els.presetName.value = preset ? preset.name : '';
+  els.presetName.value = preset ? preset.name : `${base.name} (mía)`.slice(0, 40);
+  els.presetName.removeAttribute('aria-invalid');
   els.editorError.hidden = true;
-  els.deletePreset.hidden = !preset || state.presets.length <= 1;
+  els.deletePreset.hidden = !preset;
 
   els.editorStrings.replaceChildren(
     ...base.strings.map((hz, i) => {
@@ -391,18 +509,21 @@ function openEditor(preset) {
       row.className = 'editor-row';
       row.style.setProperty('--gauge', `${1 + (STRING_COUNT - 1 - i) * 0.5}px`);
       row.innerHTML = `
-        <span class="editor-label" title="${stringNumber(i)}ª cuerda">
+        <span class="editor-label">
           <span class="string-num">${stringNumber(i)}</span>
           <span class="string-line" aria-hidden="true"></span>
         </span>
-        <input type="number" inputmode="decimal" step="0.01" min="${MIN_HZ}" max="${MAX_HZ}" required aria-label="${stringNumber(i)}ª cuerda en Hz" />
-        <span class="editor-unit">Hz</span>
-        <span class="editor-note"></span>`;
+        <span class="editor-input">
+          <input type="number" inputmode="decimal" step="0.01" min="${MIN_HZ}" max="${MAX_HZ}" required aria-label="${stringNumber(i)}ª cuerda en Hz" />
+          <span class="editor-unit" aria-hidden="true">Hz</span>
+        </span>
+        <span class="editor-note" aria-live="off"></span>`;
       const input = row.querySelector('input');
       const note = row.querySelector('.editor-note');
       const updateNote = () => {
+        input.removeAttribute('aria-invalid');
         const value = Number(input.value);
-        if (!Number.isFinite(value) || value < MIN_HZ || value > MAX_HZ) {
+        if (input.value === '' || !Number.isFinite(value) || value < MIN_HZ || value > MAX_HZ) {
           note.textContent = '—';
           return;
         }
@@ -417,7 +538,16 @@ function openEditor(preset) {
     }),
   );
   els.editor.showModal();
-  els.presetName.focus();
+  if (canAutofocus()) els.presetName.focus();
+}
+
+function editorError(message, field) {
+  els.editorError.textContent = message;
+  els.editorError.hidden = false;
+  if (field) {
+    field.setAttribute('aria-invalid', 'true');
+    field.focus();
+  }
 }
 
 async function saveEditor(event) {
@@ -428,55 +558,66 @@ async function saveEditor(event) {
     strings: inputs.map((input) => (input.value === '' ? NaN : Number(input.value))),
   });
   if (error) {
-    els.editorError.textContent = error;
-    els.editorError.hidden = false;
-    return;
+    const badString = inputs.find((input) => {
+      const hz = Number(input.value);
+      return input.value === '' || !Number.isFinite(hz) || hz < MIN_HZ || hz > MAX_HZ;
+    });
+    return editorError(error, els.presetName.value.trim() ? badString : els.presetName);
   }
   try {
-    const saved = state.editingId
-      ? await api.updatePreset(state.editingId, value)
-      : await api.createPreset(value);
+    const saved = state.editingId ? await api.updatePreset(state.editingId, value) : await api.createPreset(value);
     await api.setActivePreset(saved.id);
     await reloadPresets();
     els.editor.close();
   } catch (err) {
-    els.editorError.textContent = err.message;
-    els.editorError.hidden = false;
+    editorError(err.message);
   }
 }
 
 async function deleteEditing() {
   const preset = state.presets.find((p) => p.id === state.editingId);
-  if (!preset || !confirm(`¿Eliminar la afinación "${preset.name}"?`)) return;
+  if (!preset) return;
+  const wasActive = preset.id === state.activeId;
   try {
     await api.deletePreset(preset.id);
     await reloadPresets();
     els.editor.close();
+    toast.show(`Se eliminó «${preset.name}»`, {
+      onAction: async () => {
+        try {
+          const restored = await api.createPreset({ name: preset.name, strings: preset.strings });
+          if (wasActive) await api.setActivePreset(restored.id);
+          await reloadPresets();
+        } catch (err) {
+          showError(`No se pudo recuperar: ${err.message}`);
+        }
+      },
+    });
   } catch (err) {
-    els.editorError.textContent = err.message;
-    els.editorError.hidden = false;
-  }
-}
-
-async function restoreDefaults() {
-  if (!confirm('Las afinaciones predefinidas volverán a sus valores originales. Tus afinaciones personalizadas se mantienen. ¿Continuar?')) return;
-  try {
-    applySnapshot(await api.restoreDefaults());
-  } catch (err) {
-    showError(`No se pudieron restaurar: ${err.message}`);
+    editorError(err.message);
   }
 }
 
 // ---------- Micrófono ----------
 
+const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+function micDeniedHelp() {
+  const where = isIOS()
+    ? 'En Safari: aA › Ajustes del sitio web › Micrófono › Permitir.'
+    : 'Permítelo desde el ícono de la barra de direcciones.';
+  return `${where} Mientras, puedes afinar de oído tocando una cuerda.`;
+}
+
 async function startTuner() {
-  els.startError.hidden = true;
+  if (state.mic === 'on' || state.mic === 'starting') return;
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-    els.startError.textContent = 'El micrófono solo está disponible en localhost o con HTTPS.';
-    els.startError.hidden = false;
-    return;
+    state.mic = 'error';
+    state.micError = 'El micrófono necesita una conexión segura (HTTPS). Puedes afinar de oído tocando una cuerda.';
+    return renderRest();
   }
-  els.startBtn.disabled = true;
+  state.mic = 'starting';
+  renderRest();
   // La reproducción de tablaturas puede haber fijado la sesión de audio de iOS solo para salida.
   if (navigator.audioSession) navigator.audioSession.type = 'auto';
   try {
@@ -484,17 +625,36 @@ async function startTuner() {
     tuner.minRms = dbToAmplitude(state.sensitivityDb);
     await tuner.start();
     keepScreenAwake();
-    micActive = true;
-    els.overlay.hidden = true;
+    state.mic = 'on';
+    state.micPermission = 'granted';
+    state.idle = true;
+    state.lastSignalAt = 0;
   } catch (err) {
-    els.startError.textContent =
+    tuner = null;
+    state.mic = 'error';
+    state.micError =
       err.name === 'NotAllowedError'
-        ? 'Permiso de micrófono denegado. Habilítalo en la configuración del navegador y vuelve a intentar.'
-        : `No se pudo iniciar el micrófono: ${err.message}`;
-    els.startError.hidden = false;
-  } finally {
-    els.startBtn.disabled = false;
+        ? `Permiso denegado. ${micDeniedHelp()}`
+        : err.name === 'NotFoundError'
+          ? 'No se encontró ningún micrófono. Puedes afinar de oído tocando una cuerda.'
+          : `No se pudo iniciar el micrófono (${err.message}). Toca el botón para reintentar.`;
   }
+  renderRest();
+}
+
+/** Si el permiso ya estaba concedido, el primer toque en cualquier parte enciende el micrófono. */
+function watchPermission() {
+  navigator.permissions
+    ?.query({ name: 'microphone' })
+    .then((status) => {
+      state.micPermission = status.state;
+      status.onchange = () => (state.micPermission = status.state);
+    })
+    .catch(() => {});
+  const onFirstGesture = () => {
+    if (state.micPermission === 'granted' && state.mic === 'off') startTuner();
+  };
+  document.addEventListener('pointerdown', onFirstGesture, { once: true, capture: true });
 }
 
 // ---------- Vistas (afinador / tablaturas) ----------
@@ -504,7 +664,7 @@ function setView(view, { save = true } = {}) {
   const tuning = view === 'tuner';
   els.tunerView.hidden = !tuning;
   els.tabsView.hidden = tuning;
-  els.overlay.hidden = !tuning || micActive;
+  document.body.dataset.view = view;
   els.viewButtons.forEach((btn) => btn.setAttribute('aria-pressed', String(btn.dataset.view === view)));
   if (tuning) {
     tabView.deactivate();
@@ -514,24 +674,31 @@ function setView(view, { save = true } = {}) {
     showIdle();
     tabView.activate();
   }
-  if (save) api.updateSettings({ view }).catch((err) => showError(`No se pudo guardar el modo: ${err.message}`));
+  if (save) saveSetting({ view });
 }
 
 // ---------- Inicio ----------
 
 function bindEvents() {
-  els.presetSelect.addEventListener('change', () => selectPreset(els.presetSelect.value));
-  els.editPreset.addEventListener('click', () => openEditor(activePreset()));
-  els.newPreset.addEventListener('click', () => openEditor(null));
-  els.modeChip.addEventListener('click', () => toggleLock(state.lockedIndex));
-  els.restoreDefaults.addEventListener('click', restoreDefaults);
+  [els.tuningSheet, els.editor, els.settingsSheet].forEach(setupSheet);
+  els.tuningBtn.addEventListener('click', openTuningSheet);
+  els.newPreset.addEventListener('click', () => {
+    els.tuningSheet.close();
+    openEditor(null);
+  });
+  els.settingsBtn.addEventListener('click', () => els.settingsSheet.showModal());
+  els.modeChip.addEventListener('click', unlock);
   els.startBtn.addEventListener('click', startTuner);
   els.editorForm.addEventListener('submit', saveEditor);
   els.cancelEdit.addEventListener('click', () => els.editor.close());
   els.deletePreset.addEventListener('click', deleteEditing);
-  els.playRef.addEventListener('click', toggleReference);
   els.sensitivity.addEventListener('input', () => applySensitivity(Number(els.sensitivity.value)));
-  els.sensitivity.addEventListener('change', saveSensitivity);
+  els.sensitivity.addEventListener('change', () => saveSetting({ sensitivityDb: state.sensitivityDb }));
+  els.chimeToggle.addEventListener('change', () => {
+    state.chime = els.chimeToggle.checked;
+    saveSetting({ chime: state.chime });
+    if (state.chime) chime();
+  });
   els.viewButtons.forEach((btn) => btn.addEventListener('click', () => btn.dataset.view !== state.view && setView(btn.dataset.view)));
 }
 
@@ -541,11 +708,12 @@ async function init() {
   tabView = createTabView({
     api,
     getStrings: () => activePreset().strings,
-    getTuningName: () => activePreset().name,
     showError,
-    isMicActive: () => micActive,
+    showToast: toast.show,
+    isMicActive: () => state.mic === 'on',
   });
   bindEvents();
+  watchPermission();
   els.sensitivity.min = SENSITIVITY_MIN_DB;
   els.sensitivity.max = SENSITIVITY_MAX_DB;
   applySensitivity(DEFAULT_SENSITIVITY_DB);
@@ -554,9 +722,12 @@ async function init() {
   await tabView.load();
   if (settings.status === 'fulfilled') {
     applySensitivity(settings.value.sensitivityDb);
+    state.chime = settings.value.chime;
+    els.chimeToggle.checked = state.chime;
     setView(settings.value.view, { save: false });
   } else {
     showError(`No se pudieron cargar los ajustes: ${settings.reason.message}`);
+    setView('tuner', { save: false });
   }
 }
 

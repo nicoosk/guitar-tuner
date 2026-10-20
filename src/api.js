@@ -42,9 +42,12 @@ export const fetchPresets = () => run(snapshot);
 
 export const createPreset = (preset) => run((s) => s.create(readPreset(preset)));
 
+const READ_ONLY = 'Las afinaciones predefinidas no se pueden cambiar; crea una nueva a partir de ella.';
+
 export const updatePreset = (id, preset) =>
   run((s) => {
     const updated = s.update(id, readPreset(preset));
+    if (updated === 'default') throw new Error(READ_ONLY);
     if (!updated) throw new Error('Afinación no encontrada.');
     return updated;
   });
@@ -53,14 +56,8 @@ export const deletePreset = (id) =>
   run((s) => {
     const result = s.delete(id);
     if (result === 'not-found') throw new Error('Afinación no encontrada.');
-    if (result === 'last') throw new Error('Debe quedar al menos una afinación.');
+    if (result === 'default') throw new Error(READ_ONLY);
     return null;
-  });
-
-export const restoreDefaults = () =>
-  run((s) => {
-    s.restoreDefaults();
-    return snapshot(s);
   });
 
 export const setActivePreset = (id) =>
@@ -71,13 +68,17 @@ export const setActivePreset = (id) =>
 
 export const fetchSettings = () => run((s) => s.getSettings());
 
-/** Actualiza solo los ajustes indicados: { sensitivityDb?, view? }. */
+/** Actualiza solo los ajustes indicados: { sensitivityDb?, chime?, view? }. */
 export const updateSettings = (settings) =>
   run((s) => {
     const changes = {};
     if ('sensitivityDb' in settings) {
       changes.sensitivityDb = validateSensitivity(settings.sensitivityDb);
       if (changes.sensitivityDb === null) throw new Error('Sensibilidad fuera de rango.');
+    }
+    if ('chime' in settings) {
+      if (typeof settings.chime !== 'boolean') throw new Error('Ajuste de sonido no válido.');
+      changes.chime = settings.chime;
     }
     if ('view' in settings) {
       if (!VIEWS.includes(settings.view)) throw new Error('Vista no válida.');

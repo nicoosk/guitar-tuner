@@ -1,4 +1,4 @@
-// Vista de tablaturas: lista, ajustes (nombre, BPM, largo, compás), grilla editable de 6 cuerdas
+// Vista de tablaturas: lista, ajustes (nombre, largo, compás), grilla editable de 6 cuerdas
 // y reproducción con la afinación seleccionada en ese momento.
 
 import { audioContext, pluck } from './reference.js';
@@ -10,13 +10,16 @@ import {
   exampleTab,
   fretFrequency,
   MAX_FRET,
+  MEASURES_MAX,
   resizeNotes,
   stepCount,
   stepsPerMeasure,
   SUBDIVISIONS,
   validateTab,
 } from './tabs.js';
+import { icon } from './icons.js';
 import { noteFromFrequency, stringNumber, STRING_COUNT } from './tuning.js';
+import { canAutofocus, setupSheet } from './ui.js';
 import { keepScreenAwake } from './wakelock.js';
 
 const ROWS = [5, 4, 3, 2, 1, 0]; // como en una tablatura impresa: 1ª cuerda arriba, 6ª abajo
@@ -29,17 +32,16 @@ const $ = (id) => document.getElementById(id);
  * @param {object} deps
  * @param {typeof import('./api.js')} deps.api
  * @param {() => number[]} deps.getStrings     Hz de las cuerdas según la afinación activa
- * @param {() => string} deps.getTuningName
  * @param {(message: string) => void} deps.showError
+ * @param {(message: string, options?: object) => void} deps.showToast
  * @param {() => boolean} deps.isMicActive
  */
-export function createTabView({ api, getStrings, getTuningName, showError, isMicActive }) {
+export function createTabView({ api, getStrings, showError, showToast, isMicActive }) {
   const els = {
     view: $('tabs-view'),
-    bar: $('tab-bar'),
-    select: $('tab-select'),
+    title: $('tab-title'),
+    nameLabel: $('tab-name-label'),
     edit: $('edit-tab'),
-    create: $('new-tab'),
     empty: $('tab-empty'),
     emptyCreate: $('tab-empty-create'),
     emptyExample: $('tab-empty-example'),
@@ -50,22 +52,22 @@ export function createTabView({ api, getStrings, getTuningName, showError, isMic
     bpmInput: $('bpm-input'),
     loop: $('tab-loop'),
     metronome: $('tab-metronome'),
-    meta: $('tab-meta'),
     scroll: $('tab-scroll'),
     grid: $('tab-grid'),
     padLabel: $('fret-pad-label'),
     padPrev: $('fret-prev'),
     padNext: $('fret-next'),
-    padClear: $('fret-clear'),
     keys: $('fret-keys'),
+    sheet: $('tab-sheet'),
+    list: $('tab-list'),
+    create: $('new-tab'),
     editor: $('tab-editor'),
     editorForm: $('tab-editor-form'),
-    editorTitle: $('tab-editor-title'),
     editorCancel: $('tab-editor-cancel'),
     editorDelete: $('tab-editor-delete'),
+    editorWarning: $('tab-editor-warning'),
     editorError: $('tab-editor-error'),
     name: $('tab-name'),
-    bpm: $('tab-bpm'),
     measures: $('tab-measures'),
     beats: $('tab-beats'),
     subdivision: $('tab-subdivision'),
@@ -75,7 +77,6 @@ export function createTabView({ api, getStrings, getTuningName, showError, isMic
     tabs: [],
     activeTabId: null,
     sel: { step: 0, string: 5 },
-    editingId: null, // null = creando una nueva
     fretBuffer: '',
     fretTypedAt: 0,
     active: false,
@@ -86,6 +87,7 @@ export function createTabView({ api, getStrings, getTuningName, showError, isMic
   const tab = () => state.tabs.find((t) => t.id === state.activeTabId) ?? null;
   const fretAt = (step, string) => tab()?.notes.find((n) => n[0] === step && n[1] === string)?.[2] ?? null;
   const cellEl = (step, string) => colEls[step]?.children[1 + ROWS.indexOf(string)];
+  const describe = (t) => `${t.measures === 1 ? '1 compás' : `${t.measures} compases`} · ${t.beatsPerMeasure}/4 · ${t.bpm} BPM`;
 
   const player = new TabPlayer({ getTab: tab, getStrings, onStep: showPlayhead });
 
@@ -121,38 +123,63 @@ export function createTabView({ api, getStrings, getTuningName, showError, isMic
     try {
       await api.setActiveTab(id);
     } catch (err) {
-      showError(`No se pudo guardar la tablatura activa: ${err.message}`);
+      showError(`No se pudo guardar la tablatura elegida: ${err.message}`);
     }
+  }
+
+  async function createNew(fields = null) {
+    try {
+      const created = await api.createTab(fields ?? { name: nextName(), ...DEFAULT_TAB, notes: [] });
+      applySnapshot({ tabs: [...state.tabs, created], activeTabId: created.id });
+      if (state.active) els.grid.focus({ preventScroll: true });
+    } catch (err) {
+      showError(`No se pudo crear la tablatura: ${err.message}`);
+    }
+  }
+
+  function nextName() {
+    const names = new Set(state.tabs.map((t) => t.name));
+    let n = state.tabs.length + 1;
+    while (names.has(`Tablatura ${n}`)) n += 1;
+    return `Tablatura ${n}`;
   }
 
   // ---------- Render ----------
 
   function render() {
     const current = tab();
-    els.select.replaceChildren(
-      ...state.tabs.map((t) => {
-        const opt = document.createElement('option');
-        opt.value = t.id;
-        opt.textContent = t.name;
-        return opt;
-      }),
-    );
-    els.select.value = current?.id ?? '';
-    els.bar.hidden = !current;
     els.empty.hidden = Boolean(current);
     els.workspace.hidden = !current;
     if (!current) return;
+    els.nameLabel.textContent = current.name;
+    els.title.setAttribute('aria-label', `Tablatura: ${current.name}. Cambiar`);
     els.bpmInput.value = current.bpm;
-    renderMeta();
     renderGrid();
     renderPad();
   }
 
-  function renderMeta() {
+  function renderList() {
     const current = tab();
-    const sub = SUBDIVISIONS.find((s) => s.value === current.subdivision).label.toLowerCase();
-    const bars = current.measures === 1 ? '1 compás' : `${current.measures} compases`;
-    els.meta.textContent = `${bars} · ${current.beatsPerMeasure} tiempos · ${sub} · Afinación: ${getTuningName()}`;
+    els.list.replaceChildren(
+      ...state.tabs.map((t) => {
+        const li = document.createElement('li');
+        li.className = 'pick-item';
+        const row = document.createElement('button');
+        row.type = 'button';
+        row.className = 'pick-row';
+        if (t.id === current?.id) row.setAttribute('aria-current', 'true');
+        row.innerHTML = '<span class="pick-main"><span class="pick-name"></span><span class="pick-sub"></span></span>';
+        row.querySelector('.pick-name').textContent = t.name;
+        row.querySelector('.pick-sub').textContent = describe(t);
+        row.append(icon('Check', 'pick-check'));
+        row.addEventListener('click', () => {
+          els.sheet.close();
+          if (t.id !== state.activeTabId) selectTab(t.id);
+        });
+        li.append(row);
+        return li;
+      }),
+    );
   }
 
   function renderGrid() {
@@ -174,8 +201,11 @@ export function createTabView({ api, getStrings, getTuningName, showError, isMic
       const cells = ROWS.map((string) => `<span class="cell" data-string="${string}" style="--gauge:${gauge(string)}">${fretMarkup(frets.get(`${step}:${string}`))}</span>`).join('');
       cols += `<div class="tab-col${bar ? ' bar' : ''}${alt ? ' alt' : ''}" data-step="${step}"><span class="col-head">${head}</span>${cells}</div>`;
     }
+    const canGrow = current.measures < MEASURES_MAX;
+    const add = canGrow ? '<button type="button" class="add-measure" aria-label="Agregar un compás" title="Agregar un compás"></button>' : '';
 
-    els.grid.innerHTML = `<div class="tab-labels"><span class="col-head"></span>${labels}</div>${cols}`;
+    els.grid.innerHTML = `<div class="tab-labels"><span class="col-head"></span>${labels}</div>${cols}${add}`;
+    els.grid.querySelector('.add-measure')?.append(icon('Plus'));
     colEls = [...els.grid.querySelectorAll('.tab-col')];
     playingCol = null;
     state.sel.step = Math.min(state.sel.step, colEls.length - 1);
@@ -193,13 +223,22 @@ export function createTabView({ api, getStrings, getTuningName, showError, isMic
     const beat = Math.floor((step % perMeasure) / current.subdivision) + 1;
     const fret = fretAt(step, string);
     const open = getStrings()[string];
-    const sounding = fret === null ? '' : ` · traste ${fret} = ${noteFromFrequency(fretFrequency(open, fret)).label}`;
-    els.padLabel.textContent = `${stringNumber(string)}ª cuerda (${noteFromFrequency(open).label}) · compás ${measure}, tiempo ${beat}${sounding}`;
+    const sounding = fret === null ? '' : ` · ${noteFromFrequency(fretFrequency(open, fret)).label}`;
+    els.padLabel.textContent = `${stringNumber(string)}ª cuerda · compás ${measure}, tiempo ${beat}${sounding}`;
     els.keys.querySelectorAll('.fret-key').forEach((key) => key.classList.toggle('current', Number(key.dataset.fret) === fret));
     els.padClear.disabled = fret === null;
+    els.padPrev.disabled = step === 0;
+    els.padNext.disabled = step === stepCount(current) - 1;
   }
 
   function buildKeys() {
+    const clear = document.createElement('button');
+    clear.type = 'button';
+    clear.className = 'fret-key fret-clear';
+    clear.title = 'Borrar nota';
+    clear.setAttribute('aria-label', 'Borrar nota');
+    clear.append(icon('Eraser'));
+    els.padClear = clear;
     els.keys.replaceChildren(
       ...Array.from({ length: MAX_FRET + 1 }, (_, fret) => {
         const key = document.createElement('button');
@@ -210,6 +249,7 @@ export function createTabView({ api, getStrings, getTuningName, showError, isMic
         key.setAttribute('aria-label', `Traste ${fret}`);
         return key;
       }),
+      clear,
     );
   }
 
@@ -244,10 +284,21 @@ export function createTabView({ api, getStrings, getTuningName, showError, isMic
     persist();
   }
 
+  function addMeasure() {
+    const current = tab();
+    if (!current || current.measures >= MEASURES_MAX) return;
+    current.measures += 1;
+    const firstNew = stepCount(current) - stepsPerMeasure(current);
+    renderGrid();
+    player.refresh();
+    persist();
+    select(firstNew, state.sel.string);
+  }
+
   /** Teclado físico: dígitos (dos seguidos = traste de dos cifras), flechas, borrar y espacio. */
   function onKeyDown(event) {
-    if (!state.active || !tab() || els.editor.open) return;
-    if (event.target.closest?.('input, select, textarea, dialog') || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (!state.active || !tab() || document.querySelector('dialog[open]')) return;
+    if (event.target.closest?.('input, select, textarea') || event.metaKey || event.ctrlKey || event.altKey) return;
     const { step, string } = state.sel;
     const moves = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1] };
     if (/^\d$/.test(event.key)) {
@@ -321,22 +372,42 @@ export function createTabView({ api, getStrings, getTuningName, showError, isMic
     button.setAttribute('aria-pressed', String(player[key]));
   }
 
-  // ---------- Ajustes (crear / editar) ----------
+  // ---------- Ajustes ----------
 
-  function openEditor(existing) {
-    state.editingId = existing?.id ?? null;
-    const base = existing ?? { name: `Tablatura ${state.tabs.length + 1}`, ...DEFAULT_TAB };
-    els.editorTitle.textContent = existing ? 'Ajustes de la tablatura' : 'Nueva tablatura';
-    els.name.value = base.name;
-    els.bpm.value = base.bpm;
-    els.measures.value = base.measures;
-    els.beats.value = base.beatsPerMeasure;
-    els.subdivision.value = base.subdivision;
+  function readFields() {
+    return {
+      name: els.name.value,
+      measures: els.measures.value === '' ? NaN : Number(els.measures.value),
+      beatsPerMeasure: els.beats.value === '' ? NaN : Number(els.beats.value),
+      subdivision: Number(els.subdivision.value),
+    };
+  }
+
+  /** Avisa en el propio formulario qué notas se perderían o moverían con el nuevo largo/compás. */
+  function updateWarning() {
+    const current = tab();
+    const fields = readFields();
+    const valid = !validateTab({ ...current, ...fields, notes: [] }).error;
+    const { dropped, moved } = valid ? resizeNotes(current, fields) : { dropped: 0, moved: 0 };
+    const parts = [];
+    if (dropped) parts.push(`${dropped === 1 ? 'Se eliminará 1 nota' : `Se eliminarán ${dropped} notas`} que quedan fuera del nuevo largo.`);
+    if (moved) parts.push(`${moved === 1 ? '1 nota se moverá' : `${moved} notas se moverán`} al paso más cercano.`);
+    els.editorWarning.textContent = parts.join(' ');
+    els.editorWarning.hidden = parts.length === 0;
+  }
+
+  function openEditor() {
+    const current = tab();
+    if (!current) return;
+    els.name.value = current.name;
+    els.measures.value = current.measures;
+    els.beats.value = current.beatsPerMeasure;
+    els.subdivision.value = current.subdivision;
     els.editorError.hidden = true;
-    els.editorDelete.hidden = !existing;
+    els.editorWarning.hidden = true;
+    els.name.removeAttribute('aria-invalid');
     els.editor.showModal();
-    els.name.focus();
-    els.name.select();
+    if (canAutofocus()) els.name.focus();
   }
 
   function editorError(message) {
@@ -346,66 +417,46 @@ export function createTabView({ api, getStrings, getTuningName, showError, isMic
 
   async function saveEditor(event) {
     event.preventDefault();
-    const existing = state.tabs.find((t) => t.id === state.editingId);
-    const fields = {
-      name: els.name.value,
-      bpm: els.bpm.value === '' ? NaN : Number(els.bpm.value),
-      measures: els.measures.value === '' ? NaN : Number(els.measures.value),
-      beatsPerMeasure: els.beats.value === '' ? NaN : Number(els.beats.value),
-      subdivision: Number(els.subdivision.value),
-    };
-    const { error } = validateTab({ ...fields, notes: [] });
-    if (error) return editorError(error);
-
-    let notes = [];
-    if (existing) {
-      const resized = resizeNotes(existing, fields);
-      const warnings = [];
-      if (resized.dropped) warnings.push(`${resized.dropped} nota(s) quedan fuera del nuevo largo y se eliminarán`);
-      if (resized.moved) warnings.push(`${resized.moved} nota(s) no calzan con la nueva subdivisión y se moverán al paso más cercano`);
-      if (warnings.length && !confirm(`${warnings.join('; ')}. ¿Continuar?`)) return;
-      notes = resized.notes;
+    const current = tab();
+    const fields = readFields();
+    const { error } = validateTab({ ...fields, bpm: current.bpm, notes: [] });
+    if (error) {
+      if (!fields.name.trim()) {
+        els.name.setAttribute('aria-invalid', 'true');
+        els.name.focus();
+      }
+      return editorError(error);
     }
-
     try {
       player.stop();
-      if (existing) {
-        const saved = await api.updateTab(existing.id, { ...fields, notes });
-        state.tabs = state.tabs.map((t) => (t.id === saved.id ? saved : t));
-        render();
-      } else {
-        const created = await api.createTab({ ...fields, notes });
-        applySnapshot({ tabs: [...state.tabs, created], activeTabId: created.id });
-      }
+      const { notes } = resizeNotes(current, fields);
+      const saved = await api.updateTab(current.id, { ...fields, bpm: current.bpm, notes });
+      state.tabs = state.tabs.map((t) => (t.id === saved.id ? saved : t));
+      render();
       els.editor.close();
     } catch (err) {
       editorError(err.message);
     }
   }
 
-  async function deleteEditing() {
-    const existing = state.tabs.find((t) => t.id === state.editingId);
-    if (!existing || !confirm(`¿Eliminar la tablatura "${existing.name}"?`)) return;
+  async function deleteCurrent() {
+    const current = tab();
+    if (!current) return;
     try {
-      applySnapshot(await api.deleteTab(existing.id));
+      applySnapshot(await api.deleteTab(current.id));
       els.editor.close();
+      showToast(`Se eliminó «${current.name}»`, {
+        onAction: () => createNew({ ...current }),
+      });
     } catch (err) {
       editorError(err.message);
-    }
-  }
-
-  async function createExample() {
-    try {
-      const created = await api.createTab(exampleTab());
-      applySnapshot({ tabs: [...state.tabs, created], activeTabId: created.id });
-    } catch (err) {
-      showError(`No se pudo crear el ejemplo: ${err.message}`);
     }
   }
 
   // ---------- Eventos ----------
 
   function bindEvents() {
+    [els.sheet, els.editor].forEach(setupSheet);
     els.subdivision.replaceChildren(
       ...SUBDIVISIONS.map(({ value, label }) => {
         const opt = document.createElement('option');
@@ -414,14 +465,21 @@ export function createTabView({ api, getStrings, getTuningName, showError, isMic
         return opt;
       }),
     );
-    els.bpmInput.min = els.bpm.min = BPM_MIN;
-    els.bpmInput.max = els.bpm.max = BPM_MAX;
+    els.bpmInput.min = BPM_MIN;
+    els.bpmInput.max = BPM_MAX;
 
-    els.select.addEventListener('change', () => selectTab(els.select.value));
-    els.edit.addEventListener('click', () => openEditor(tab()));
-    els.create.addEventListener('click', () => openEditor(null));
-    els.emptyCreate.addEventListener('click', () => openEditor(null));
-    els.emptyExample.addEventListener('click', createExample);
+    els.title.addEventListener('click', () => {
+      renderList();
+      els.sheet.showModal();
+      els.list.querySelector('[aria-current]')?.focus();
+    });
+    els.create.addEventListener('click', () => {
+      els.sheet.close();
+      createNew();
+    });
+    els.edit.addEventListener('click', openEditor);
+    els.emptyCreate.addEventListener('click', () => createNew());
+    els.emptyExample.addEventListener('click', () => createNew(exampleTab()));
     els.play.addEventListener('click', togglePlay);
     els.bpmDown.addEventListener('click', () => setBpm((tab()?.bpm ?? 0) - BPM_STEP));
     els.bpmUp.addEventListener('click', () => setBpm((tab()?.bpm ?? 0) + BPM_STEP));
@@ -429,19 +487,24 @@ export function createTabView({ api, getStrings, getTuningName, showError, isMic
     els.loop.addEventListener('click', () => toggleOption(els.loop, 'loop'));
     els.metronome.addEventListener('click', () => toggleOption(els.metronome, 'metronome'));
     els.grid.addEventListener('click', (event) => {
+      if (event.target.closest('.add-measure')) return addMeasure();
       const cell = event.target.closest('.cell');
       if (cell) select(Number(cell.parentElement.dataset.step), Number(cell.dataset.string));
     });
+    // En pantalla, tras elegir un traste se pasa al paso siguiente de la misma cuerda (para escribir melodías seguidas).
     els.keys.addEventListener('click', (event) => {
-      const key = event.target.closest('.fret-key');
-      if (key) setFret(Number(key.dataset.fret));
+      const key = event.target.closest('.fret-key[data-fret]');
+      if (!key) return;
+      setFret(Number(key.dataset.fret));
+      if (state.sel.step < colEls.length - 1) select(state.sel.step + 1, state.sel.string);
     });
     els.padPrev.addEventListener('click', () => select(state.sel.step - 1, state.sel.string));
     els.padNext.addEventListener('click', () => select(state.sel.step + 1, state.sel.string));
     els.padClear.addEventListener('click', () => setFret(null));
     els.editorForm.addEventListener('submit', saveEditor);
+    els.editorForm.addEventListener('input', updateWarning);
     els.editorCancel.addEventListener('click', () => els.editor.close());
-    els.editorDelete.addEventListener('click', deleteEditing);
+    els.editorDelete.addEventListener('click', deleteCurrent);
     document.addEventListener('keydown', onKeyDown);
   }
 
@@ -461,7 +524,6 @@ export function createTabView({ api, getStrings, getTuningName, showError, isMic
     /** La afinación activa cambió: nombres de cuerdas y notas se recalculan (y lo que suene usa la nueva). */
     onTuningChange() {
       if (!tab()) return;
-      renderMeta();
       renderGrid();
       renderPad();
     },

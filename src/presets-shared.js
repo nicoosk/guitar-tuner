@@ -1,5 +1,6 @@
 // Definiciones de afinaciones predefinidas y validación de datos del usuario.
 // Cada preset: { id, name, isDefault, strings: [hz 6ª, 5ª, 4ª, 3ª, 2ª, 1ª] }
+// Las predefinidas son de solo lectura: para cambiarlas se crea una nueva a partir de ellas.
 
 import { STRING_COUNT } from './tuning.js';
 
@@ -8,12 +9,12 @@ export const MAX_HZ = 1500;
 export const MAX_NAME_LENGTH = 40;
 
 export const DEFAULT_PRESETS = [
-  { id: 'standard', name: 'Estándar (E A D G B E)', strings: [82.41, 110.0, 146.83, 196.0, 246.94, 329.63] },
-  { id: 'drop-d', name: 'Drop D (D A D G B E)', strings: [73.42, 110.0, 146.83, 196.0, 246.94, 329.63] },
-  { id: 'half-down', name: 'Medio tono abajo (Eb)', strings: [77.78, 103.83, 138.59, 185.0, 233.08, 311.13] },
+  { id: 'standard', name: 'Estándar', strings: [82.41, 110.0, 146.83, 196.0, 246.94, 329.63] },
+  { id: 'drop-d', name: 'Drop D', strings: [73.42, 110.0, 146.83, 196.0, 246.94, 329.63] },
+  { id: 'half-down', name: 'Medio tono abajo', strings: [77.78, 103.83, 138.59, 185.0, 233.08, 311.13] },
   { id: 'dadgad', name: 'DADGAD', strings: [73.42, 110.0, 146.83, 196.0, 220.0, 293.66] },
-  { id: 'open-g', name: 'Open G (D G D G B D)', strings: [73.42, 98.0, 146.83, 196.0, 246.94, 293.66] },
-  { id: 'open-d', name: 'Open D (D A D F# A D)', strings: [73.42, 110.0, 146.83, 185.0, 220.0, 293.66] },
+  { id: 'open-g', name: 'Open G', strings: [73.42, 98.0, 146.83, 196.0, 246.94, 293.66] },
+  { id: 'open-d', name: 'Open D', strings: [73.42, 110.0, 146.83, 185.0, 220.0, 293.66] },
 ];
 
 // Sensibilidad del micrófono: umbral de volumen en dBFS bajo el cual se ignora el sonido.
