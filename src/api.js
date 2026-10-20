@@ -1,8 +1,9 @@
-// Acceso a afinaciones y ajustes, guardados en el propio navegador (sin servidor).
+// Acceso a afinaciones, tablaturas y ajustes, guardados en el propio navegador (sin servidor).
 // Mantiene una interfaz asíncrona y lanza Error con mensajes legibles, como antes la API REST.
 
 import { validatePreset, validateSensitivity } from './presets-shared.js';
-import { openStore, memoryStorage } from './store.js';
+import { openStore, memoryStorage, VIEWS } from './store.js';
+import { validateTab } from './tabs.js';
 
 function browserStorage() {
   try {
@@ -70,9 +71,50 @@ export const setActivePreset = (id) =>
 
 export const fetchSettings = () => run((s) => s.getSettings());
 
-export const updateSettings = ({ sensitivityDb }) =>
+/** Actualiza solo los ajustes indicados: { sensitivityDb?, view? }. */
+export const updateSettings = (settings) =>
   run((s) => {
-    const value = validateSensitivity(sensitivityDb);
-    if (value === null) throw new Error('Sensibilidad fuera de rango.');
-    return s.updateSettings({ sensitivityDb: value });
+    const changes = {};
+    if ('sensitivityDb' in settings) {
+      changes.sensitivityDb = validateSensitivity(settings.sensitivityDb);
+      if (changes.sensitivityDb === null) throw new Error('Sensibilidad fuera de rango.');
+    }
+    if ('view' in settings) {
+      if (!VIEWS.includes(settings.view)) throw new Error('Vista no válida.');
+      changes.view = settings.view;
+    }
+    return s.updateSettings(changes);
+  });
+
+// ---------- Tablaturas ----------
+
+function readTab(input) {
+  const { value, error } = validateTab(input);
+  if (error) throw new Error(error);
+  return value;
+}
+
+const tabsSnapshot = (s) => ({ tabs: s.listTabs(), activeTabId: s.getActiveTabId() });
+
+export const fetchTabs = () => run(tabsSnapshot);
+
+export const createTab = (tab) => run((s) => s.createTab(readTab(tab)));
+
+export const updateTab = (id, tab) =>
+  run((s) => {
+    const updated = s.updateTab(id, readTab(tab));
+    if (!updated) throw new Error('Tablatura no encontrada.');
+    return updated;
+  });
+
+export const deleteTab = (id) =>
+  run((s) => {
+    if (!s.deleteTab(id)) throw new Error('Tablatura no encontrada.');
+    return tabsSnapshot(s);
+  });
+
+export const setActiveTab = (id) =>
+  run((s) => {
+    if (!s.setActiveTabId(id)) throw new Error('Tablatura no encontrada.');
+    return null;
   });

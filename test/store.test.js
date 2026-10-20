@@ -1,4 +1,4 @@
-// Almacenamiento local de afinaciones (src/store.js) y su API (src/api.js), con un localStorage simulado.
+// Almacenamiento local de afinaciones, tablaturas y ajustes (src/store.js) y su API (src/api.js), con un localStorage simulado.
 
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
@@ -67,11 +67,40 @@ test('no permite eliminar la última afinación', async () => {
 });
 
 test('guarda y valida la sensibilidad del micrófono', async () => {
-  assert.deepEqual(await api.fetchSettings(), { sensitivityDb: -44.5 });
+  assert.deepEqual(await api.fetchSettings(), { sensitivityDb: -44.5, view: 'tuner' });
   assert.equal((await api.updateSettings({ sensitivityDb: -38.27 })).sensitivityDb, -38.3);
   await assert.rejects(api.updateSettings({ sensitivityDb: -5 }), /fuera de rango/);
   await assert.rejects(api.updateSettings({ sensitivityDb: 'x' }), /fuera de rango/);
   assert.equal((await api.fetchSettings()).sensitivityDb, -38.3);
+});
+
+test('guarda el modo (afinador / tablaturas) sin tocar la sensibilidad', async () => {
+  assert.deepEqual(await api.updateSettings({ view: 'tabs' }), { sensitivityDb: -38.3, view: 'tabs' });
+  await assert.rejects(api.updateSettings({ view: 'otro' }), /Vista no válida/);
+  assert.equal((await api.fetchSettings()).view, 'tabs');
+});
+
+test('crea, edita, activa y elimina tablaturas', async () => {
+  assert.deepEqual(await api.fetchTabs(), { tabs: [], activeTabId: null });
+
+  const first = await api.createTab({ name: ' Riff ', bpm: 100, measures: 2, beatsPerMeasure: 4, subdivision: 2, notes: [[3, 5, 7], [0, 0, 3]] });
+  assert.equal(first.name, 'Riff');
+  assert.deepEqual(first.notes, [[0, 0, 3], [3, 5, 7]], 'ordenadas por paso');
+  const second = await api.createTab({ name: 'Otra', bpm: 60, measures: 1, beatsPerMeasure: 3, subdivision: 1, notes: [] });
+  assert.equal((await api.fetchTabs()).activeTabId, second.id, 'la recién creada queda activa');
+
+  await api.setActiveTab(first.id);
+  const updated = await api.updateTab(first.id, { ...first, bpm: 120, notes: [...first.notes, [15, 2, 12]] });
+  assert.equal(updated.bpm, 120);
+  assert.equal(updated.notes.length, 3);
+
+  await assert.rejects(api.updateTab(first.id, { ...first, bpm: 500 }), /tempo/);
+  await assert.rejects(api.updateTab('no-existe', first), /no encontrada/);
+  await assert.rejects(api.setActiveTab('no-existe'), /no encontrada/);
+
+  const afterDelete = await api.deleteTab(first.id);
+  assert.deepEqual(afterDelete.tabs.map((t) => t.id), [second.id]);
+  assert.equal(afterDelete.activeTabId, second.id, 'si se borra la activa, pasa a la primera');
 });
 
 test('los datos persisten al reabrir el almacenamiento', () => {
@@ -82,6 +111,8 @@ test('los datos persisten al reabrir el almacenamiento', () => {
   assert.ok(reopened.list().some((p) => p.name === 'Persistente'));
   assert.equal(reopened.getActiveId(), custom.id);
   assert.equal(reopened.getSettings().sensitivityDb, -38.3);
+  assert.equal(reopened.getSettings().view, 'tabs');
+  assert.deepEqual(reopened.listTabs().map((t) => t.name), ['Otra']);
 });
 
 test('ignora datos guardados corruptos o inválidos', () => {
@@ -93,9 +124,13 @@ test('ignora datos guardados corruptos o inválidos', () => {
     presets: [{ id: 'ok', name: 'Válida', strings: [82, 110, 146, 196, 246, 329] }, { id: 'mala', name: 'X', strings: [1] }],
     activeId: 'mala',
     sensitivityDb: 99,
+    view: 'otra',
+    tabs: [{ id: 't1', name: 'Ok', bpm: 90, measures: 1, beatsPerMeasure: 4, subdivision: 2, notes: [[0, 0, 3], [99, 0, 1], [1, 9, 1], [2, 0, 30]] }, { id: 't2', name: 'Mala', bpm: 0 }],
   }));
   const store = openStore(broken);
   assert.deepEqual(store.list().map((p) => p.id), ['ok']);
   assert.equal(store.getActiveId(), 'ok');
   assert.equal(store.getSettings().sensitivityDb, -44.5);
+  assert.equal(store.getSettings().view, 'tuner');
+  assert.deepEqual(store.listTabs().map((t) => [t.id, t.notes]), [['t1', [[0, 0, 3]]]], 'descarta notas fuera de rango y tablaturas inválidas');
 });

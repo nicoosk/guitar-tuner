@@ -2,6 +2,7 @@
 // El navegador libera el bloqueo al cambiar de pestaña, así que se vuelve a pedir al regresar.
 
 let sentinel = null;
+let started = false;
 
 async function request() {
   try {
@@ -11,8 +12,10 @@ async function request() {
   }
 }
 
+/** Pide mantener la pantalla encendida; se puede llamar varias veces (solo se activa una). */
 export function keepScreenAwake() {
-  if (!('wakeLock' in navigator)) return;
+  if (!('wakeLock' in navigator) || started) return;
+  started = true;
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && (!sentinel || sentinel.released)) request();
   });

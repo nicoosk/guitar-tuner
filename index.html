@@ -36,7 +36,16 @@
         <span id="app-error-text"></span>
       </div>
 
-      <main>
+      <nav class="view-switch" aria-label="Modo">
+        <button id="view-tuner" class="view-btn" type="button" data-view="tuner" aria-pressed="true">
+          <span data-icon="Gauge"></span> Afinador
+        </button>
+        <button id="view-tabs" class="view-btn" type="button" data-view="tabs" aria-pressed="false">
+          <span data-icon="ListMusic"></span> Tablaturas
+        </button>
+      </nav>
+
+      <main id="tuner-view">
         <section class="meter idle">
           <svg class="gauge" viewBox="0 0 300 170" aria-hidden="true">
             <path class="gauge-arc" d="M 30 150 A 120 120 0 0 1 270 150" />
@@ -95,6 +104,66 @@
           <div id="strings" class="strings"></div>
         </section>
       </main>
+
+      <main id="tabs-view" class="tabs-view" hidden>
+        <div id="tab-bar" class="tab-bar">
+          <label class="visually-hidden" for="tab-select">Tablatura</label>
+          <select id="tab-select" class="preset-select"></select>
+          <div class="toolbar">
+            <button id="edit-tab" class="icon-btn" type="button" title="Ajustes de la tablatura" aria-label="Ajustes de la tablatura">
+              <span data-icon="SlidersHorizontal"></span>
+            </button>
+            <button id="new-tab" class="icon-btn" type="button" title="Nueva tablatura" aria-label="Nueva tablatura">
+              <span data-icon="Plus"></span>
+            </button>
+          </div>
+        </div>
+
+        <div id="tab-empty" class="tab-empty" hidden>
+          <span data-icon="ListMusic" class="tab-empty-icon"></span>
+          <p>Escribe tus propias tablaturas: pon el número de traste en cada cuerda y reprodúcelas con la afinación seleccionada.</p>
+          <div class="tab-empty-actions">
+            <button id="tab-empty-create" class="btn btn-primary" type="button"><span data-icon="Plus"></span> Nueva tablatura</button>
+            <button id="tab-empty-example" class="btn btn-secondary" type="button"><span data-icon="Sparkles"></span> Cargar ejemplo</button>
+          </div>
+        </div>
+
+        <div id="tab-workspace" class="tab-workspace" hidden>
+          <div class="transport">
+            <button id="tab-play" class="transport-play" type="button" aria-label="Reproducir" title="Reproducir / detener (espacio)">
+              <span data-icon="Play" class="icon-play"></span>
+              <span data-icon="Square" class="icon-stop"></span>
+            </button>
+            <div class="bpm-control">
+              <button id="bpm-down" class="icon-btn" type="button" title="Más lento" aria-label="Bajar tempo"><span data-icon="Minus"></span></button>
+              <label class="bpm-value">
+                <input id="bpm-input" type="number" inputmode="numeric" step="1" aria-label="Tempo en BPM" />
+                <span>BPM</span>
+              </label>
+              <button id="bpm-up" class="icon-btn" type="button" title="Más rápido" aria-label="Subir tempo"><span data-icon="Plus"></span></button>
+            </div>
+            <span class="spacer"></span>
+            <button id="tab-loop" class="icon-btn toggle" type="button" title="Repetir" aria-label="Repetir" aria-pressed="false"><span data-icon="Repeat"></span></button>
+            <button id="tab-metronome" class="icon-btn toggle" type="button" title="Metrónomo" aria-label="Metrónomo" aria-pressed="false"><span data-icon="Metronome"></span></button>
+          </div>
+
+          <p id="tab-meta" class="tab-meta"></p>
+
+          <div id="tab-scroll" class="tab-scroll">
+            <div id="tab-grid" class="tab-grid" aria-label="Tablatura: toca una celda y elige el traste"></div>
+          </div>
+
+          <div class="fret-pad">
+            <div class="fret-pad-head">
+              <span id="fret-pad-label" class="fret-pad-label" aria-live="polite"></span>
+              <button id="fret-prev" class="icon-btn" type="button" title="Paso anterior" aria-label="Paso anterior"><span data-icon="ChevronLeft"></span></button>
+              <button id="fret-next" class="icon-btn" type="button" title="Paso siguiente" aria-label="Paso siguiente"><span data-icon="ChevronRight"></span></button>
+              <button id="fret-clear" class="icon-btn danger" type="button" title="Borrar nota" aria-label="Borrar nota"><span data-icon="Eraser"></span></button>
+            </div>
+            <div id="fret-keys" class="fret-keys"></div>
+          </div>
+        </div>
+      </main>
     </div>
 
     <div id="start-overlay" class="overlay">
@@ -124,6 +193,47 @@
         <p id="editor-error" class="error" hidden></p>
         <div class="editor-actions">
           <button id="delete-preset" class="icon-btn danger" type="button" title="Eliminar afinación" aria-label="Eliminar afinación">
+            <span data-icon="Trash2"></span>
+          </button>
+          <span class="spacer"></span>
+          <button class="btn btn-primary" type="submit"><span data-icon="Check"></span> Guardar</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="tab-editor" class="editor">
+      <form id="tab-editor-form" novalidate>
+        <div class="editor-head">
+          <h2 id="tab-editor-title">Nueva tablatura</h2>
+          <button id="tab-editor-cancel" class="icon-btn" type="button" title="Cancelar" aria-label="Cancelar">
+            <span data-icon="X"></span>
+          </button>
+        </div>
+        <label class="name-field">
+          <span data-icon="Tag"></span>
+          <input id="tab-name" type="text" maxlength="40" required autocomplete="off" placeholder="Nombre" aria-label="Nombre de la tablatura" />
+        </label>
+        <div class="tab-fields">
+          <label class="tab-field">
+            <span>Tempo (BPM)</span>
+            <input id="tab-bpm" type="number" inputmode="numeric" step="1" required />
+          </label>
+          <label class="tab-field">
+            <span>Largo (compases)</span>
+            <input id="tab-measures" type="number" inputmode="numeric" step="1" min="1" max="64" required />
+          </label>
+          <label class="tab-field">
+            <span>Tiempos por compás</span>
+            <input id="tab-beats" type="number" inputmode="numeric" step="1" min="1" max="12" required />
+          </label>
+          <label class="tab-field">
+            <span>Notas por tiempo</span>
+            <select id="tab-subdivision"></select>
+          </label>
+        </div>
+        <p id="tab-editor-error" class="error" hidden></p>
+        <div class="editor-actions">
+          <button id="tab-editor-delete" class="icon-btn danger" type="button" title="Eliminar tablatura" aria-label="Eliminar tablatura">
             <span data-icon="Trash2"></span>
           </button>
           <span class="spacer"></span>

@@ -20,6 +20,7 @@ import {
 import * as api from './api.js';
 import { mountIcons } from './icons.js';
 import { playReference, stopReference } from './reference.js';
+import { createTabView } from './tab-view.js';
 import { keepScreenAwake } from './wakelock.js';
 
 const IN_TUNE_CENTS = 3; // margen para considerar la cuerda afinada
@@ -67,6 +68,9 @@ const els = {
   editorError: $('editor-error'),
   deletePreset: $('delete-preset'),
   cancelEdit: $('cancel-edit'),
+  viewButtons: document.querySelectorAll('.view-btn'),
+  tunerView: $('tuner-view'),
+  tabsView: $('tabs-view'),
 };
 
 const state = {
@@ -83,9 +87,12 @@ const state = {
   sensitivityDb: DEFAULT_SENSITIVITY_DB,
   referencePlaying: false,
   ignoreUntil: 0, // hasta cuándo ignorar el micrófono tras el tono de referencia
+  view: 'tuner', // 'tuner' | 'tabs'
 };
 
 let tuner = null;
+let micActive = false;
+let tabView = null;
 
 const activePreset = () => state.presets.find((p) => p.id === state.activeId) ?? state.presets[0];
 
@@ -155,7 +162,8 @@ function onReading(freq, level) {
   updateSignal(level);
   const now = performance.now();
   // Mientras suena el tono de referencia el micrófono lo escucha: no se evalúa.
-  if (state.referencePlaying || now < state.ignoreUntil) return;
+  // Tampoco fuera del afinador (p. ej. mientras suena una tablatura).
+  if (state.view !== 'tuner' || state.referencePlaying || now < state.ignoreUntil) return;
   if (freq == null) {
     if (now - state.lastSignalAt > SIGNAL_TIMEOUT_MS) showIdle();
     return;
@@ -339,6 +347,7 @@ function applySnapshot({ presets, activeId }) {
   resetTuningSession();
   renderPresetSelect();
   renderStrings();
+  tabView?.onTuningChange();
 }
 
 function resetTuningSession() {
@@ -354,6 +363,7 @@ async function selectPreset(id) {
   state.activeId = id;
   resetTuningSession();
   renderStrings();
+  tabView?.onTuningChange();
   try {
     await api.setActivePreset(id);
   } catch (err) {
@@ -467,11 +477,14 @@ async function startTuner() {
     return;
   }
   els.startBtn.disabled = true;
+  // La reproducción de tablaturas puede haber fijado la sesión de audio de iOS solo para salida.
+  if (navigator.audioSession) navigator.audioSession.type = 'auto';
   try {
     tuner = new Tuner(onReading);
     tuner.minRms = dbToAmplitude(state.sensitivityDb);
     await tuner.start();
     keepScreenAwake();
+    micActive = true;
     els.overlay.hidden = true;
   } catch (err) {
     els.startError.textContent =
@@ -482,6 +495,26 @@ async function startTuner() {
   } finally {
     els.startBtn.disabled = false;
   }
+}
+
+// ---------- Vistas (afinador / tablaturas) ----------
+
+function setView(view, { save = true } = {}) {
+  state.view = view;
+  const tuning = view === 'tuner';
+  els.tunerView.hidden = !tuning;
+  els.tabsView.hidden = tuning;
+  els.overlay.hidden = !tuning || micActive;
+  els.viewButtons.forEach((btn) => btn.setAttribute('aria-pressed', String(btn.dataset.view === view)));
+  if (tuning) {
+    tabView.deactivate();
+    state.lastSignalAt = 0;
+  } else {
+    endReference(true);
+    showIdle();
+    tabView.activate();
+  }
+  if (save) api.updateSettings({ view }).catch((err) => showError(`No se pudo guardar el modo: ${err.message}`));
 }
 
 // ---------- Inicio ----------
@@ -499,19 +532,32 @@ function bindEvents() {
   els.playRef.addEventListener('click', toggleReference);
   els.sensitivity.addEventListener('input', () => applySensitivity(Number(els.sensitivity.value)));
   els.sensitivity.addEventListener('change', saveSensitivity);
+  els.viewButtons.forEach((btn) => btn.addEventListener('click', () => btn.dataset.view !== state.view && setView(btn.dataset.view)));
 }
 
 async function init() {
   mountIcons();
   buildGauge();
+  tabView = createTabView({
+    api,
+    getStrings: () => activePreset().strings,
+    getTuningName: () => activePreset().name,
+    showError,
+    isMicActive: () => micActive,
+  });
   bindEvents();
   els.sensitivity.min = SENSITIVITY_MIN_DB;
   els.sensitivity.max = SENSITIVITY_MAX_DB;
   applySensitivity(DEFAULT_SENSITIVITY_DB);
   const [presets, settings] = await Promise.allSettled([reloadPresets(), api.fetchSettings()]);
   if (presets.status === 'rejected') showError(`No se pudieron cargar las afinaciones: ${presets.reason.message}`);
-  if (settings.status === 'fulfilled') applySensitivity(settings.value.sensitivityDb);
-  else showError(`No se pudo cargar la sensibilidad: ${settings.reason.message}`);
+  await tabView.load();
+  if (settings.status === 'fulfilled') {
+    applySensitivity(settings.value.sensitivityDb);
+    setView(settings.value.view, { save: false });
+  } else {
+    showError(`No se pudieron cargar los ajustes: ${settings.reason.message}`);
+  }
 }
 
 init();
