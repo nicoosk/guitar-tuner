@@ -28,8 +28,8 @@
           <button id="view-tuner" class="view-btn" type="button" data-view="tuner" aria-pressed="true">
             <span data-icon="Gauge"></span><span>Afinador</span>
           </button>
-          <button id="view-tabs" class="view-btn" type="button" data-view="tabs" aria-pressed="false">
-            <span data-icon="ListMusic"></span><span>Tablaturas</span>
+          <button id="view-music" class="view-btn" type="button" data-view="music" aria-pressed="false">
+            <span data-icon="Music"></span><span>Mi música</span>
           </button>
         </nav>
 
@@ -87,65 +87,7 @@
         </section>
       </main>
 
-      <main id="tabs-view" class="tabs-view" hidden>
-        <div id="tab-empty" class="tab-empty" hidden>
-          <span data-icon="ListMusic" class="tab-empty-icon"></span>
-          <h2>Tus tablaturas</h2>
-          <p>Escribe los trastes sobre cada cuerda y escucha cómo suena con la afinación elegida.</p>
-          <div class="tab-empty-actions">
-            <button id="tab-empty-create" class="btn btn-primary" type="button"><span data-icon="Plus"></span> Nueva tablatura</button>
-            <button id="tab-empty-example" class="btn btn-secondary" type="button">Ver un ejemplo</button>
-          </div>
-        </div>
-
-        <div id="tab-workspace" class="tab-workspace" hidden>
-          <div class="tab-bar">
-            <button id="tab-title" class="title-btn" type="button" aria-haspopup="dialog">
-              <span class="title-text">
-                <span id="tab-name-label" class="title-name"></span>
-              </span>
-              <span data-icon="ChevronDown" class="title-chevron"></span>
-            </button>
-            <button id="edit-tab" class="icon-btn ghost" type="button" title="Ajustes de la tablatura" aria-label="Ajustes de la tablatura" aria-haspopup="dialog">
-              <span data-icon="SlidersHorizontal"></span>
-            </button>
-          </div>
-
-          <div id="tab-scroll" class="tab-scroll">
-            <div id="tab-grid" class="tab-grid" tabindex="0" role="group" aria-label="Tablatura" aria-describedby="fret-pad-label"></div>
-          </div>
-          <p class="kbd-hint">Números para el traste · flechas para moverte · Borrar para quitar · espacio para reproducir</p>
-
-          <div class="tab-dock">
-            <div class="transport">
-              <button id="tab-play" class="transport-play" type="button" aria-label="Reproducir" title="Reproducir / detener (espacio)">
-                <span data-icon="Play" class="icon-play"></span>
-                <span data-icon="Square" class="icon-stop"></span>
-              </button>
-              <div class="bpm-control">
-                <button id="bpm-down" class="icon-btn ghost" type="button" title="Más lento" aria-label="Bajar tempo"><span data-icon="Minus"></span></button>
-                <label class="bpm-value">
-                  <input id="bpm-input" type="number" inputmode="numeric" step="1" aria-label="Tempo en BPM" />
-                  <span aria-hidden="true">BPM</span>
-                </label>
-                <button id="bpm-up" class="icon-btn ghost" type="button" title="Más rápido" aria-label="Subir tempo"><span data-icon="Plus"></span></button>
-              </div>
-              <span class="spacer"></span>
-              <button id="tab-loop" class="icon-btn ghost toggle" type="button" title="Repetir" aria-label="Repetir" aria-pressed="false"><span data-icon="Repeat"></span></button>
-              <button id="tab-metronome" class="icon-btn ghost toggle" type="button" title="Metrónomo" aria-label="Metrónomo" aria-pressed="false"><span data-icon="Metronome"></span></button>
-            </div>
-
-            <div class="fret-pad">
-              <div class="fret-pad-head">
-                <button id="fret-prev" class="icon-btn ghost" type="button" title="Paso anterior" aria-label="Paso anterior"><span data-icon="ChevronLeft"></span></button>
-                <span id="fret-pad-label" class="fret-pad-label" aria-live="polite"></span>
-                <button id="fret-next" class="icon-btn ghost" type="button" title="Paso siguiente" aria-label="Paso siguiente"><span data-icon="ChevronRight"></span></button>
-              </div>
-              <div id="fret-keys" class="fret-keys"></div>
-            </div>
-          </div>
-        </div>
-      </main>
+      <main id="music-view" class="music-view" hidden aria-label="Mi música"></main>
     </div>
 
     <div id="toast" class="toast" role="status" aria-live="polite" hidden>
@@ -187,6 +129,24 @@
           <button class="btn btn-primary" type="submit">Guardar</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="music-editor" class="sheet" aria-labelledby="music-editor-title">
+      <form id="music-editor-form">
+        <div class="sheet-head"><h2 id="music-editor-title">Añadir a Mi música</h2><button id="music-editor-cancel" class="icon-btn ghost" type="button" aria-label="Cerrar"><span data-icon="X"></span></button></div>
+        <label class="field"><span class="field-label">Nombre</span><input id="music-title" maxlength="80" required autocomplete="off" /></label>
+        <label id="music-kind-field" class="field"><span class="field-label">Tipo</span><select id="music-kind"><option value="improvisation">Improvisación</option><option value="song">Canción</option></select></label>
+        <label class="field"><span class="field-label">Afinación</span><select id="music-tuning"></select></label>
+        <div id="music-record-row" class="music-record-row"><button id="music-record" class="btn btn-secondary" type="button"><span data-icon="Mic"></span> Grabar</button><span id="music-record-status" aria-live="polite"></span></div>
+        <p id="music-editor-error" class="error" role="alert" hidden></p>
+        <div class="sheet-actions"><span class="spacer"></span><button class="btn btn-primary" type="submit">Guardar</button></div>
+      </form>
+    </dialog>
+
+    <dialog id="music-delete-dialog" class="sheet" aria-labelledby="music-delete-title">
+      <div class="sheet-head"><h2 id="music-delete-title">¿Eliminar pista?</h2><button id="music-delete-cancel-top" class="icon-btn ghost" type="button" aria-label="Cerrar"><span data-icon="X"></span></button></div>
+      <p id="music-delete-message" class="field-help">Esta acción elimina la pista y su grabación de este dispositivo.</p>
+      <div class="sheet-actions"><button id="music-delete-cancel" class="btn btn-secondary" type="button">Cancelar</button><span class="spacer"></span><button id="music-delete-confirm" class="btn btn-quiet-danger" type="button">Eliminar</button></div>
     </dialog>
 
     <!-- Ajustes -->

@@ -85,12 +85,12 @@ test('guarda y valida la sensibilidad del micrófono', async () => {
   assert.equal((await api.fetchSettings()).sensitivityDb, -38.3);
 });
 
-test('guarda el modo (afinador / tablaturas) sin tocar la sensibilidad', async () => {
-  assert.deepEqual(await api.updateSettings({ view: 'tabs' }), { sensitivityDb: -38.3, chime: true, view: 'tabs' });
+test('guarda el modo (afinador / mi música) sin tocar la sensibilidad', async () => {
+  assert.deepEqual(await api.updateSettings({ view: 'music' }), { sensitivityDb: -38.3, chime: true, view: 'music' });
   assert.equal((await api.updateSettings({ chime: false })).chime, false);
   await assert.rejects(api.updateSettings({ chime: 'sí' }), /sonido/);
   await assert.rejects(api.updateSettings({ view: 'otro' }), /Vista no válida/);
-  assert.equal((await api.fetchSettings()).view, 'tabs');
+  assert.equal((await api.fetchSettings()).view, 'music');
 });
 
 test('crea, edita, activa y elimina tablaturas', async () => {
@@ -124,7 +124,7 @@ test('los datos persisten al reabrir el almacenamiento', () => {
   assert.ok(reopened.list().some((p) => p.name === 'Persistente'));
   assert.equal(reopened.getActiveId(), custom.id);
   assert.equal(reopened.getSettings().sensitivityDb, -38.3);
-  assert.equal(reopened.getSettings().view, 'tabs');
+  assert.equal(reopened.getSettings().view, 'music');
   assert.deepEqual(reopened.listTabs().map((t) => t.name), ['Otra']);
 });
 

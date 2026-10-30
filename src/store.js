@@ -4,9 +4,10 @@
 
 import { DEFAULT_PRESETS, DEFAULT_SENSITIVITY_DB, validatePreset, validateSensitivity } from './presets-shared.js';
 import { validateTab } from './tabs.js';
+import { validateMusic } from './music.js';
 
 export const STORAGE_KEY = 'afinador:v1';
-export const VIEWS = ['tuner', 'tabs'];
+export const VIEWS = ['tuner', 'music'];
 
 const defaultPresets = () => DEFAULT_PRESETS.map((p) => ({ ...p, isDefault: true, strings: [...p.strings] }));
 const DEFAULTS_BY_ID = new Map(DEFAULT_PRESETS.map((p) => [p.id, p]));
@@ -66,6 +67,12 @@ function sanitize(raw) {
         return value && typeof t.id === 'string' ? [{ id: t.id, ...value }] : [];
       })
     : [];
+  const music = Array.isArray(raw?.music)
+    ? raw.music.flatMap((item) => {
+      const { value } = validateMusic(item);
+      return value && typeof item.id === 'string' ? [{ id: item.id, ...value }] : [];
+    })
+    : [];
   const { presets, activeId } = mergeDefaults(stored, typeof raw?.activeId === 'string' ? raw.activeId : null);
   return {
     presets,
@@ -75,6 +82,7 @@ function sanitize(raw) {
     view: VIEWS.includes(raw?.view) ? raw.view : VIEWS[0],
     tabs,
     activeTabId: typeof raw?.activeTabId === 'string' ? raw.activeTabId : null,
+    music,
   };
 }
 
@@ -92,6 +100,7 @@ export function openStore(storage) {
   const copy = (preset) => ({ ...preset, strings: [...preset.strings] });
   const findTab = (id) => data.tabs.find((t) => t.id === id);
   const copyTab = (tab) => ({ ...tab, notes: tab.notes.map((n) => [...n]) });
+  const copyMusic = (item) => ({ ...item });
 
   const store = {
     list: () => data.presets.map(copy),
@@ -178,6 +187,28 @@ export function openStore(storage) {
       data.activeTabId = id;
       save();
       return true;
+    },
+
+    listMusic: () => data.music.map(copyMusic),
+    createMusic(item) {
+      const created = { id: newId(), ...copyMusic(item) };
+      data.music.unshift(created);
+      save();
+      return copyMusic(created);
+    },
+    updateMusic(id, item) {
+      const existing = data.music.find((entry) => entry.id === id);
+      if (!existing) return null;
+      Object.assign(existing, copyMusic(item), { id, createdAt: existing.createdAt });
+      save();
+      return copyMusic(existing);
+    },
+    deleteMusic(id) {
+      const item = data.music.find((entry) => entry.id === id);
+      if (!item) return null;
+      data.music = data.music.filter((entry) => entry.id !== id);
+      save();
+      return copyMusic(item);
     },
   };
 

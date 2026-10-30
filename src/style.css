@@ -280,7 +280,7 @@ button {
   right: 0;
   bottom: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, 1fr);
   padding: 0 max(16px, env(safe-area-inset-left)) var(--safe-b);
   background: color-mix(in srgb, var(--bg) 88%, transparent);
   backdrop-filter: blur(14px);
@@ -1205,6 +1205,320 @@ button {
   gap: 10px;
   min-width: 0;
 }
+
+/* ---------- Mi música ---------- */
+
+.music-view {
+  flex: 1;
+  padding: 12px 0 4px;
+}
+
+.music-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 4px 4px 20px;
+}
+
+.music-head h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+}
+
+.music-head-icon {
+  width: 30px;
+  height: 30px;
+  color: var(--string);
+}
+
+.music-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 26px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.music-switch button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 8px 12px;
+  color: var(--muted);
+  font-weight: 650;
+  background: transparent;
+  border: 0;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.music-switch button[aria-selected='true'] {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.music-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.music-entry {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr) 36px 36px 42px;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 74px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.music-entry:hover {
+  background: var(--surface-2);
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
+}
+
+.music-entry.active {
+  border-color: color-mix(in srgb, var(--ok) 62%, var(--border));
+}
+
+.music-type,
+.music-action {
+  display: grid;
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.music-edit {
+  grid-column: 3;
+  grid-row: 1;
+  width: 36px;
+  height: 36px;
+}
+
+.music-delete {
+  grid-column: 4;
+  grid-row: 1;
+  width: 36px;
+  height: 36px;
+  color: var(--muted);
+}
+
+.music-delete:hover {
+  color: var(--danger);
+}
+
+.music-type {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.music-entry-copy {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.music-action {
+  grid-column: 5;
+  grid-row: 1;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+}
+
+.music-type {
+  color: var(--string);
+  background: color-mix(in srgb, var(--string) 13%, transparent);
+}
+
+.music-action {
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.music-entry.active .music-action {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+}
+
+.music-entry-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.music-title {
+  display: block;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.music-detail {
+  display: block;
+  margin: 3px 0 6px;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.music-tuning {
+  display: inline-flex;
+  align-items: center;
+  min-height: 21px;
+  padding: 1px 7px;
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 999px;
+}
+
+.wave-player {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 2px 0;
+}
+
+.wave-empty {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  position: relative;
+  display: block;
+  height: 68px;
+  min-height: 68px;
+  padding: 0 2px;
+}
+
+.wave-empty > svg {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: calc(100% - 4px);
+  height: 40px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.wave-empty rect {
+  fill: color-mix(in srgb, var(--muted) 42%, transparent);
+}
+
+.wave-record {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  padding: 7px 10px;
+  color: var(--accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: var(--surface-2);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.wave-record:hover {
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+}
+
+.wave-controls {
+  display: flex;
+  gap: 2px;
+}
+
+.wave-control {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.wave-control:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.wave-play {
+  color: var(--accent);
+}
+
+.wave-track {
+  position: relative;
+  height: 40px;
+}
+
+.wave-track svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.wave-track rect {
+  transition: fill 0.12s linear;
+}
+
+.wave-playhead {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.wave-track input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  cursor: ew-resize;
+  opacity: 0;
+}
+
+.wave-track input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 5px;
+}
+
+.wave-time {
+  min-width: 74px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 
 .tab-bar {
   display: flex;

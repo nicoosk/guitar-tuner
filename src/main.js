@@ -20,9 +20,10 @@ import {
 import * as api from './api.js';
 import { icon, mountIcons } from './icons.js';
 import { chime, playReference, stopReference } from './reference.js';
-import { createTabView } from './tab-view.js';
+import { createMusicView } from './music-view.js';
 import { canAutofocus, createToast, setupSheet, tuningNotes } from './ui.js';
 import { keepScreenAwake } from './wakelock.js';
+import { deleteRecording, recordAudio, saveRecording } from './audio-library.js';
 
 const IN_TUNE_CENTS = 3; // margen para considerar la cuerda afinada
 const HOLD_MS = 600; // tiempo afinada antes de marcarla con ✓
@@ -73,7 +74,9 @@ const els = {
   chimeToggle: $('chime-toggle'),
   viewButtons: document.querySelectorAll('.view-btn'),
   tunerView: $('tuner-view'),
-  tabsView: $('tabs-view'),
+  musicView: $('music-view'),
+  musicEditor: $('music-editor'), musicEditorForm: $('music-editor-form'), musicEditorCancel: $('music-editor-cancel'), musicTitle: $('music-title'), musicKind: $('music-kind'), musicKindField: $('music-kind-field'), musicTuning: $('music-tuning'), musicRecord: $('music-record'), musicRecordRow: $('music-record-row'), musicRecordStatus: $('music-record-status'), musicEditorError: $('music-editor-error'),
+  musicDeleteDialog: $('music-delete-dialog'), musicDeleteMessage: $('music-delete-message'), musicDeleteCancel: $('music-delete-cancel'), musicDeleteCancelTop: $('music-delete-cancel-top'), musicDeleteConfirm: $('music-delete-confirm'),
 };
 
 const state = {
@@ -92,7 +95,7 @@ const state = {
   chime: true,
   referencePlaying: false,
   ignoreUntil: 0, // hasta cuándo ignorar el micrófono tras el tono de referencia o el aviso
-  view: 'tuner', // 'tuner' | 'tabs'
+  view: 'tuner', // 'tuner' | 'tabs' | 'music'
   mic: 'off', // 'off' | 'starting' | 'on' | 'error'
   micError: '',
   micPermission: 'prompt', // estado del permiso del navegador, si se puede consultar
@@ -100,7 +103,12 @@ const state = {
 };
 
 let tuner = null;
-let tabView = null;
+let musicView = null;
+let pendingRecording = null;
+let activeRecorder = null;
+let editingMusic = null;
+let cardRecorder = null;
+let resolveMusicDelete = null;
 const toast = createToast();
 
 const activePreset = () => state.presets.find((p) => p.id === state.activeId) ?? state.presets[0];
@@ -461,7 +469,7 @@ function applySnapshot({ presets, activeId }) {
   resetTuningSession();
   renderTuningTitle();
   renderStrings();
-  tabView?.onTuningChange();
+  musicView?.render();
 }
 
 function resetTuningSession() {
@@ -480,7 +488,8 @@ async function selectPreset(id) {
   resetTuningSession();
   renderTuningTitle();
   renderStrings();
-  tabView?.onTuningChange();
+  // Mantiene el ✓ de "Mi música" sincronizado aunque la vista esté oculta.
+  musicView?.render();
   try {
     await api.setActivePreset(id);
   } catch (err) {
@@ -657,22 +666,20 @@ function watchPermission() {
   document.addEventListener('pointerdown', onFirstGesture, { once: true, capture: true });
 }
 
-// ---------- Vistas (afinador / tablaturas) ----------
+// ---------- Vistas ----------
 
 function setView(view, { save = true } = {}) {
   state.view = view;
   const tuning = view === 'tuner';
   els.tunerView.hidden = !tuning;
-  els.tabsView.hidden = tuning;
+  els.musicView.hidden = view !== 'music';
   document.body.dataset.view = view;
   els.viewButtons.forEach((btn) => btn.setAttribute('aria-pressed', String(btn.dataset.view === view)));
   if (tuning) {
-    tabView.deactivate();
     state.lastSignalAt = 0;
   } else {
     endReference(true);
     showIdle();
-    tabView.activate();
   }
   if (save) saveSetting({ view });
 }
@@ -680,7 +687,7 @@ function setView(view, { save = true } = {}) {
 // ---------- Inicio ----------
 
 function bindEvents() {
-  [els.tuningSheet, els.editor, els.settingsSheet].forEach(setupSheet);
+  [els.tuningSheet, els.editor, els.settingsSheet, els.musicEditor, els.musicDeleteDialog].forEach(setupSheet);
   els.tuningBtn.addEventListener('click', openTuningSheet);
   els.newPreset.addEventListener('click', () => {
     els.tuningSheet.close();
@@ -700,17 +707,98 @@ function bindEvents() {
     if (state.chime) chime();
   });
   els.viewButtons.forEach((btn) => btn.addEventListener('click', () => btn.dataset.view !== state.view && setView(btn.dataset.view)));
+  els.musicEditorCancel.addEventListener('click', () => els.musicEditor.close());
+  els.musicEditorForm.addEventListener('submit', saveMusicEntry);
+  const cancelMusicDelete = () => resolveMusicDelete?.(false);
+  els.musicDeleteCancel.addEventListener('click', cancelMusicDelete);
+  els.musicDeleteCancelTop.addEventListener('click', cancelMusicDelete);
+  els.musicDeleteConfirm.addEventListener('click', () => resolveMusicDelete?.(true));
+  els.musicDeleteDialog.addEventListener('close', () => resolveMusicDelete?.(false));
+}
+
+function openMusicEditor(entry = null, defaultKind = 'improvisation') {
+  editingMusic = entry;
+  pendingRecording = null;
+  activeRecorder = null;
+  els.musicTitle.value = entry?.title ?? '';
+  els.musicKind.value = entry?.kind ?? defaultKind;
+  els.musicKindField.hidden = true;
+  els.musicRecordRow.hidden = true;
+  els.musicTuning.replaceChildren(...state.presets.map((preset) => new Option(preset.name, preset.id, false, preset.id === (entry?.tuningId ?? state.activeId))));
+  $('music-editor-title').textContent = entry ? 'Editar pista' : 'Añadir a Mi música';
+  els.musicRecord.innerHTML = '<span data-icon="Mic"></span> Grabar';
+  mountIcons(els.musicRecord);
+  els.musicEditorError.hidden = true;
+  els.musicEditor.showModal();
+}
+
+async function recordFromCard(entry) {
+  if (cardRecorder?.id && cardRecorder.id !== entry.id) throw new Error('Termina la otra grabación antes de empezar una nueva.');
+  if (!cardRecorder) {
+    cardRecorder = { id: entry.id, recorder: await recordAudio() };
+    return 'recording';
+  }
+  const blob = await cardRecorder.recorder.stop();
+  const audioId = crypto.randomUUID();
+  await saveRecording(audioId, blob);
+  await api.updateMusic(entry.id, { ...entry, audioId, duration: null });
+  cardRecorder = null;
+  await musicView.load();
+  return 'saved';
+}
+
+function confirmMusicDelete(entry) {
+  els.musicDeleteMessage.textContent = `Eliminarás «${entry.title}»${entry.audioId ? ' y su grabación' : ''} de este dispositivo. No se puede deshacer.`;
+  els.musicDeleteDialog.showModal();
+  return new Promise((resolve) => {
+    resolveMusicDelete = (confirmed) => {
+      resolveMusicDelete = null;
+      els.musicDeleteDialog.close();
+      resolve(confirmed);
+    };
+  });
+}
+
+async function deleteMusicEntry(entry) {
+  if (!(await confirmMusicDelete(entry))) return false;
+  await api.deleteMusic(entry.id);
+  if (entry.audioId) await deleteRecording(entry.audioId);
+  await musicView.load();
+  toast.show(`Se eliminó «${entry.title}»`);
+  return true;
+}
+
+async function saveMusicEntry(event) {
+  event.preventDefault();
+  try {
+    const audioId = pendingRecording ? crypto.randomUUID() : editingMusic?.audioId ?? null;
+    if (pendingRecording) await saveRecording(audioId, pendingRecording);
+    const data = { title: els.musicTitle.value, kind: els.musicKind.value, tuningId: els.musicTuning.value, audioId, duration: null };
+    if (editingMusic) await api.updateMusic(editingMusic.id, data);
+    else await api.createMusic(data);
+    await musicView.load();
+    els.musicEditor.close();
+  } catch (err) { els.musicEditorError.textContent = err.message; els.musicEditorError.hidden = false; }
 }
 
 async function init() {
   mountIcons();
   buildGauge();
-  tabView = createTabView({
+  musicView = createMusicView({
+    root: els.musicView,
+    getPresets: () => state.presets,
+    getActiveId: () => state.activeId,
+    onChooseTuning: async ({ tuningId, title }) => {
+      await selectPreset(tuningId);
+      const preset = activePreset();
+      toast.show(`«${title}»: ${preset.name} está activa`);
+      setView('tuner');
+    },
+    onNew: (kind) => openMusicEditor(null, kind),
+    onEdit: openMusicEditor,
+    onRecord: recordFromCard,
+    onDelete: deleteMusicEntry,
     api,
-    getStrings: () => activePreset().strings,
-    showError,
-    showToast: toast.show,
-    isMicActive: () => state.mic === 'on',
   });
   bindEvents();
   watchPermission();
@@ -719,7 +807,7 @@ async function init() {
   applySensitivity(DEFAULT_SENSITIVITY_DB);
   const [presets, settings] = await Promise.allSettled([reloadPresets(), api.fetchSettings()]);
   if (presets.status === 'rejected') showError(`No se pudieron cargar las afinaciones: ${presets.reason.message}`);
-  await tabView.load();
+  await musicView.load();
   if (settings.status === 'fulfilled') {
     applySensitivity(settings.value.sensitivityDb);
     state.chime = settings.value.chime;

@@ -4,6 +4,7 @@
 import { validatePreset, validateSensitivity } from './presets-shared.js';
 import { openStore, memoryStorage, VIEWS } from './store.js';
 import { validateTab } from './tabs.js';
+import { validateMusic } from './music.js';
 
 function browserStorage() {
   try {
@@ -119,3 +120,23 @@ export const setActiveTab = (id) =>
     if (!s.setActiveTabId(id)) throw new Error('Tablatura no encontrada.');
     return null;
   });
+
+// ---------- Mi música ----------
+export const fetchMusic = () => run((s) => s.listMusic());
+export const createMusic = (item) => run((s) => {
+  const { value, error } = validateMusic(item);
+  if (error) throw new Error(error);
+  return s.createMusic(value);
+});
+export const updateMusic = (id, item) => run((s) => {
+  const { value, error } = validateMusic(item);
+  if (error) throw new Error(error);
+  const updated = s.updateMusic(id, value);
+  if (!updated) throw new Error('Entrada no encontrada.');
+  return updated;
+});
+export const deleteMusic = (id) => run((s) => {
+  const deleted = s.deleteMusic(id);
+  if (!deleted) throw new Error('Entrada no encontrada.');
+  return deleted;
+});
