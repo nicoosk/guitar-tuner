@@ -3,10 +3,12 @@
 
 const DURATION_S = 2.5;
 const HARMONICS = [1, 0.55, 0.35, 0.22, 0.14, 0.09, 0.06, 0.04];
+const CLICK_DURATION_S = 0.06;
 
 let ctx = null;
 let wave = null;
 let current = null;
+const clickBuffers = new Map();
 
 /** AudioContext compartido; se crea y reanuda en el primer uso (debe ser tras un gesto del usuario). */
 export function audioContext() {
@@ -60,17 +62,45 @@ export function pluck(freq, when, { duration = DURATION_S, volume = 0.5 } = {}) 
   return { osc, stop };
 }
 
+/** Modela un golpe de madera: impacto breve seguido de resonancias inarmónicas. */
+function woodClick(ac, accent) {
+  const rate = ac.sampleRate;
+  const buffer = ac.createBuffer(1, Math.ceil(rate * CLICK_DURATION_S), rate);
+  const samples = buffer.getChannelData(0);
+  const base = accent ? 1050 : 780;
+  const volume = accent ? 0.27 : 0.17;
+  let noise = 0;
+
+  for (let i = 0; i < samples.length; i += 1) {
+    const t = i / rate;
+    const phase = 2 * Math.PI * base * t;
+    noise += 0.35 * (2 * Math.random() - 1 - noise);
+    const impact = noise * Math.exp(-t / 0.0018);
+    const body = 0.62 * Math.sin(phase) * Math.exp(-t / 0.009);
+    const overtones = (0.28 * Math.sin(2.41 * phase) + 0.12 * Math.sin(3.73 * phase)) * Math.exp(-t / 0.004);
+    const attack = Math.min(1, t / 0.0005);
+    const tail = Math.min(1, (samples.length - 1 - i) / (rate * 0.005));
+    samples[i] = volume * (impact + body + overtones) * attack * tail;
+  }
+  return buffer;
+}
+
 /** Clic de metrónomo en `when`; `accent` marca el primer tiempo del compás. */
-export function click(when, accent = false) {
+export function click(when, accent = false, duration = CLICK_DURATION_S) {
   const ac = audioContext();
-  const osc = new OscillatorNode(ac, { type: 'square', frequency: accent ? 1760 : 1175 });
-  const gain = new GainNode(ac, { gain: 0 });
-  gain.gain.setValueAtTime(0, when);
-  gain.gain.linearRampToValueAtTime(accent ? 0.16 : 0.09, when + 0.002);
-  gain.gain.exponentialRampToValueAtTime(0.001, when + 0.05);
-  osc.connect(gain).connect(ac.destination);
-  osc.start(when);
-  osc.stop(when + 0.06);
+  if (!clickBuffers.has(accent)) clickBuffers.set(accent, woodClick(ac, accent));
+  const source = ac.createBufferSource();
+  source.buffer = clickBuffers.get(accent);
+  if (duration < CLICK_DURATION_S) {
+    const gain = ac.createGain();
+    gain.gain.setValueAtTime(1, when + duration * 0.75);
+    gain.gain.linearRampToValueAtTime(0, when + duration);
+    source.connect(gain).connect(ac.destination);
+  } else {
+    source.connect(ac.destination);
+  }
+  source.start(when, 0, duration);
+  return source;
 }
 
 /**

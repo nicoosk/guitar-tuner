@@ -21,6 +21,7 @@ import * as api from './api.js';
 import { icon, mountIcons } from './icons.js';
 import { chime, playReference, stopReference } from './reference.js';
 import { createMusicView } from './music-view.js';
+import { setupMetronome } from './metronome.js';
 import { canAutofocus, createToast, setupSheet, tuningNotes } from './ui.js';
 import { keepScreenAwake } from './wakelock.js';
 import { deleteRecording, recordAudio, saveRecording } from './audio-library.js';
@@ -783,6 +784,7 @@ async function saveMusicEntry(event) {
 
 async function init() {
   mountIcons();
+  setupMetronome($('metronome'), showError);
   buildGauge();
   musicView = createMusicView({
     root: els.musicView,
