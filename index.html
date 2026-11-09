@@ -90,6 +90,29 @@
       <main id="music-view" class="music-view" hidden aria-label="Mi música"></main>
     </div>
 
+    <div id="metronome" class="metronome">
+      <button id="metronome-toggle" class="icon-btn metronome-toggle" type="button" aria-label="Metrónomo" aria-expanded="false" aria-controls="metronome-controls" title="Metrónomo">
+        <span data-icon="Metronome"></span>
+        <span class="metronome-pulse" aria-hidden="true"></span>
+      </button>
+      <div id="metronome-controls" class="metronome-controls" role="group" aria-label="Controles del metrónomo" hidden>
+        <div class="metronome-meter" role="group" aria-labelledby="metronome-meter-label">
+          <span id="metronome-meter-label" class="metronome-label">Compás</span>
+          <input id="metronome-beats" type="number" min="1" max="9007199254740991" value="4" inputmode="numeric" aria-label="Tiempos por compás" required />
+          <span aria-hidden="true">/</span>
+          <input id="metronome-unit" type="number" min="1" max="9007199254740991" value="4" inputmode="numeric" aria-label="Denominador del compás" required />
+        </div>
+        <div class="metronome-tempo">
+          <label class="metronome-label" for="metronome-bpm">BPM</label>
+          <input id="metronome-bpm" type="number" min="0.001" max="6000" step="any" value="120" inputmode="decimal" required />
+        </div>
+        <button id="metronome-play" class="icon-btn btn-primary" type="button" aria-label="Iniciar metrónomo" title="Iniciar metrónomo">
+          <span data-icon="Play"></span>
+        </button>
+      </div>
+      <p id="metronome-status" class="visually-hidden" role="status"></p>
+    </div>
+
     <div id="toast" class="toast" role="status" aria-live="polite" hidden>
       <span id="toast-text" class="toast-text"></span>
       <button id="toast-action" class="toast-action" type="button" hidden>Deshacer</button>
